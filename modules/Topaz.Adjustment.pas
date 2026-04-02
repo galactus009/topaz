@@ -15,7 +15,7 @@ unit Topaz.Adjustment;
 interface
 
 uses
-  SysUtils, Math, Apollo.Broker, Topaz.BlackScholes, Topaz.Intents;
+  SysUtils, Math, StrUtils, Apollo.Broker, Topaz.BlackScholes, Topaz.Intents;
 
 type
   TAdjustmentRule = (

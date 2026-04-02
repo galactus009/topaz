@@ -15,7 +15,7 @@ unit Topaz.EventTypes;
 interface
 
 uses
-  SysUtils, Topaz.RingBuffer;
+  SysUtils, Topaz.RingBuffer, Topaz.Candles;
 
 const
   TICK_RING_CAPACITY    = 8192;
@@ -80,7 +80,9 @@ type
     Logs: TRingBuffer<TLogEvent>;
     StrategySlots: array[0..MAX_STRATEGY_SLOTS - 1] of TStrategySlot;
     StrategyCount: Integer;
+    Candles: TCandleEngine;
     constructor Create;
+    destructor Destroy; override;
     function AddStrategySlot: Integer;     // returns slot index, -1 if full
     procedure RemoveStrategySlot(AIndex: Integer);
   end;
@@ -120,6 +122,15 @@ begin
   StrategyCount := 0;
   for I := 0 to MAX_STRATEGY_SLOTS - 1 do
     StrategySlots[I].Active := False;
+  Candles := TCandleEngine.Create;
+  Candles.EnableTimeframe(tf1m);
+  Candles.EnableTimeframe(tf5m);
+end;
+
+destructor TEventBus.Destroy;
+begin
+  Candles.Free;
+  inherited;
 end;
 
 function TEventBus.AddStrategySlot: Integer;
@@ -171,6 +182,9 @@ begin
   for I := 0 to MAX_STRATEGY_SLOTS - 1 do
     if Bus.StrategySlots[I].Active then
       Bus.StrategySlots[I].Ticks.TryWrite(Tick);
+
+  // Feed candle engine
+  Bus.Candles.Update(LTP, Volume, Now);
 end;
 
 procedure CbDepth(UserData: Pointer; SymbolId: Integer;

@@ -38,6 +38,7 @@ object frmDashboard: TfrmDashboard
       Top = 4
       Width = 600
       Caption = ''
+      ParentFont = False
     end
   end
   object pnlSideNav: TPanel
@@ -70,7 +71,6 @@ object frmDashboard: TfrmDashboard
       Width = 132
       Caption = 'Dashboard'
       Color = 2105376
-      Font.Color = clWhite
       ParentFont = False
       OnClick = btnNavDashboardClick
       TabOrder = 0
@@ -82,7 +82,6 @@ object frmDashboard: TfrmDashboard
       Width = 132
       Caption = 'Orders'
       Color = 2105376
-      Font.Color = clWhite
       ParentFont = False
       OnClick = btnNavOrdersClick
       TabOrder = 1
@@ -94,7 +93,6 @@ object frmDashboard: TfrmDashboard
       Width = 132
       Caption = 'Strategies'
       Color = 2105376
-      Font.Color = clWhite
       ParentFont = False
       OnClick = btnNavStrategiesClick
       TabOrder = 2
@@ -106,7 +104,6 @@ object frmDashboard: TfrmDashboard
       Width = 132
       Caption = 'Search'
       Color = 2105376
-      Font.Color = clWhite
       ParentFont = False
       OnClick = btnNavSearchClick
       TabOrder = 3
@@ -118,7 +115,6 @@ object frmDashboard: TfrmDashboard
       Width = 132
       Caption = 'Settings'
       Color = 2105376
-      Font.Color = clWhite
       ParentFont = False
       OnClick = btnNavSettingsClick
       TabOrder = 4
@@ -130,7 +126,6 @@ object frmDashboard: TfrmDashboard
       Width = 132
       Caption = 'Log'
       Color = 2105376
-      Font.Color = clWhite
       ParentFont = False
       OnClick = btnNavLogClick
       TabOrder = 5
@@ -142,7 +137,6 @@ object frmDashboard: TfrmDashboard
       Width = 132
       Caption = 'Options'
       Color = 2105376
-      Font.Color = clWhite
       ParentFont = False
       OnClick = btnNavOptionsClick
       TabOrder = 6
@@ -154,7 +148,6 @@ object frmDashboard: TfrmDashboard
       Width = 132
       Caption = 'Health'
       Color = 2105376
-      Font.Color = clWhite
       ParentFont = False
       OnClick = btnNavHealthClick
       TabOrder = 7
@@ -231,6 +224,7 @@ object frmDashboard: TfrmDashboard
       Top = 12
       Width = 80
       Caption = 'Disconnected'
+      ParentFont = False
     end
     object lblBrokerInfo: TLabel
       Left = 370
@@ -238,6 +232,7 @@ object frmDashboard: TfrmDashboard
       Top = 12
       Width = 120
       Caption = ''
+      ParentFont = False
     end
     object lblDailyPnLBar: TLabel
       Left = 500
@@ -254,6 +249,7 @@ object frmDashboard: TfrmDashboard
       Top = 12
       Width = 200
       Caption = '--:--:-- | --'
+      ParentFont = False
     end
     object btnFlattenAll: TButton
       Left = 880
@@ -339,6 +335,7 @@ object frmDashboard: TfrmDashboard
         Top = 36
         Width = 952
         Align = alClient
+        FixedColor = clWhite
         ColCount = 8
         FixedCols = 0
         RowCount = 1
@@ -362,6 +359,7 @@ object frmDashboard: TfrmDashboard
           Top = 40
           Width = 952
           Align = alClient
+          FixedColor = clWhite
           ColCount = 6
           FixedCols = 0
           RowCount = 1
@@ -383,6 +381,7 @@ object frmDashboard: TfrmDashboard
             Top = 10
             Width = 160
             Caption = 'Available: --'
+            ParentFont = False
           end
           object lblFundsUsed: TLabel
             Left = 200
@@ -390,6 +389,7 @@ object frmDashboard: TfrmDashboard
             Top = 10
             Width = 140
             Caption = 'Used: --'
+            ParentFont = False
           end
           object lblFundsBalance: TLabel
             Left = 380
@@ -397,6 +397,7 @@ object frmDashboard: TfrmDashboard
             Top = 10
             Width = 160
             Caption = 'Balance: --'
+            ParentFont = False
           end
           object lblNetPosition: TLabel
             Left = 580
@@ -404,6 +405,7 @@ object frmDashboard: TfrmDashboard
             Top = 10
             Width = 160
             Caption = 'Net: FLAT'
+            ParentFont = False
           end
         end
       end
@@ -585,6 +587,7 @@ object frmDashboard: TfrmDashboard
         Top = 160
         Width = 952
         Align = alClient
+        FixedColor = clWhite
         ColCount = 7
         FixedCols = 0
         RowCount = 1
@@ -654,6 +657,7 @@ object frmDashboard: TfrmDashboard
         Top = 40
         Width = 952
         Align = alClient
+        FixedColor = clWhite
         ColCount = 7
         FixedCols = 0
         RowCount = 1
@@ -715,6 +719,7 @@ object frmDashboard: TfrmDashboard
         Top = 40
         Width = 952
         Align = alClient
+        FixedColor = clWhite
         ColCount = 7
         FixedCols = 0
         RowCount = 1
@@ -1081,6 +1086,8 @@ object frmDashboard: TfrmDashboard
         Top = 66
         Width = 952
         Align = alClient
+        Color = 2105376
+        Font.Color = clLime
         Font.Name = 'Menlo'
         Font.Height = -12
         ParentFont = False
@@ -1111,6 +1118,7 @@ object frmDashboard: TfrmDashboard
           Top = 8
           Width = 100
           Caption = 'Lines: 0'
+          ParentFont = False
         end
       end
       object pnlLogFilter: TPanel
@@ -1209,6 +1217,7 @@ object frmDashboard: TfrmDashboard
           Top = 10
           Width = 70
           Caption = 'Underlying'
+          ParentFont = False
         end
         object edtChainUnderlying: TEdit
           Left = 85
@@ -1223,6 +1232,7 @@ object frmDashboard: TfrmDashboard
           Top = 10
           Width = 45
           Caption = 'Expiry'
+          ParentFont = False
         end
         object cbxChainExpiry: TComboBox
           Left = 265
@@ -1247,6 +1257,7 @@ object frmDashboard: TfrmDashboard
           Top = 10
           Width = 200
           Caption = 'IV Rank: -- | Regime: --'
+          ParentFont = False
         end
         object lblMaxPain: TLabel
           Left = 750
@@ -1254,6 +1265,7 @@ object frmDashboard: TfrmDashboard
           Top = 10
           Width = 180
           Caption = 'Max Pain: -- | PCR: --'
+          ParentFont = False
         end
       end
       object gridOptionChain: TStringGrid
@@ -1262,6 +1274,7 @@ object frmDashboard: TfrmDashboard
         Top = 40
         Width = 952
         Align = alClient
+        FixedColor = clWhite
         ColCount = 13
         FixedCols = 0
         RowCount = 1
@@ -1294,6 +1307,7 @@ object frmDashboard: TfrmDashboard
           Top = 10
           Width = 100
           Caption = 'Risk: OK'
+          ParentFont = False
         end
         object lblOpenOrders: TLabel
           Left = 180
@@ -1301,6 +1315,7 @@ object frmDashboard: TfrmDashboard
           Top = 10
           Width = 120
           Caption = 'Open Orders: 0/20'
+          ParentFont = False
         end
         object lblDailyPnL: TLabel
           Left = 350
@@ -1308,6 +1323,7 @@ object frmDashboard: TfrmDashboard
           Top = 10
           Width = 120
           Caption = 'Daily P&L: 0.00'
+          ParentFont = False
         end
         object lblExposure: TLabel
           Left = 520
@@ -1315,14 +1331,90 @@ object frmDashboard: TfrmDashboard
           Top = 10
           Width = 120
           Caption = 'Exposure: 0.00'
+          ParentFont = False
+        end
+        object lblNetDelta: TLabel
+          Left = 680
+          Height = 20
+          Top = 10
+          Width = 80
+          Caption = 'Delta: --'
+          ParentFont = False
+        end
+        object lblNetGamma: TLabel
+          Left = 770
+          Height = 20
+          Top = 10
+          Width = 85
+          Caption = 'Gamma: --'
+          ParentFont = False
+        end
+        object lblNetTheta: TLabel
+          Left = 860
+          Height = 20
+          Top = 10
+          Width = 80
+          Caption = 'Theta: --'
+          ParentFont = False
+        end
+        object lblNetVega: TLabel
+          Left = 940
+          Height = 20
+          Top = 10
+          Width = 80
+          Caption = 'Vega: --'
+          ParentFont = False
+        end
+      end
+      object pnlPnLBreakdown: TPanel
+        Left = 0
+        Height = 30
+        Top = 40
+        Width = 952
+        Align = alTop
+        BevelOuter = bvNone
+        TabOrder = 2
+        object lblRealizedPnL: TLabel
+          Left = 8
+          Height = 20
+          Top = 5
+          Width = 140
+          Caption = 'Realized: 0.00'
+          ParentFont = False
+        end
+        object lblUnrealizedPnL: TLabel
+          Left = 200
+          Height = 20
+          Top = 5
+          Width = 140
+          Caption = 'Unrealized: 0.00'
+          ParentFont = False
+        end
+        object lblTotalPnL: TLabel
+          Left = 400
+          Height = 20
+          Top = 5
+          Width = 140
+          Caption = 'Total: 0.00'
+          Font.Style = [fsBold]
+          ParentFont = False
+        end
+        object lblTotalTrades: TLabel
+          Left = 600
+          Height = 20
+          Top = 5
+          Width = 120
+          Caption = 'Trades: 0'
+          ParentFont = False
         end
       end
       object gridHealth: TStringGrid
         Left = 0
-        Height = 588
-        Top = 40
+        Height = 548
+        Top = 70
         Width = 952
         Align = alClient
+        FixedColor = clWhite
         ColCount = 8
         FixedCols = 0
         RowCount = 1

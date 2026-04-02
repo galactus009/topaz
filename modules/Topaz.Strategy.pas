@@ -18,7 +18,7 @@ interface
 
 uses
   Classes, SysUtils, Apollo.Broker, Topaz.RingBuffer, Topaz.EventTypes,
-  Topaz.Risk;
+  Topaz.Risk, Topaz.Execution;
 
 type
   TStrategy = class;
@@ -48,6 +48,7 @@ type
     FSharpe: Double;
     FWarmupTicks: Integer;    // ticks remaining in warmup
     FWarmedUp: Boolean;       // true once warmup complete
+    FExecEngine: TExecutionEngine;
   protected
     FBroker: TBroker;
     FRisk: TRiskManager;
@@ -83,6 +84,11 @@ type
     function DeclareParams: TArray<TStrategyParam>; virtual;
     procedure ApplyParam(const AName, AValue: AnsiString); virtual;
     function GetParamValue(const AName: AnsiString): AnsiString; virtual;
+    function BuyTWAP(const ASymbol: AnsiString; AQty, ASlices: Integer;
+      AIntervalMs: Integer = 2000; AExchange: TExchange = exNSE): Integer;
+    function SellTWAP(const ASymbol: AnsiString; AQty, ASlices: Integer;
+      AIntervalMs: Integer = 2000; AExchange: TExchange = exNSE): Integer;
+    property ExecEngine: TExecutionEngine read FExecEngine write FExecEngine;
   end;
 
   TStrategyThread = class(TThread)
@@ -172,6 +178,26 @@ end;
 function TStrategy.GetParamValue(const AName: AnsiString): AnsiString;
 begin
   Result := '';
+end;
+
+function TStrategy.BuyTWAP(const ASymbol: AnsiString; AQty, ASlices: Integer;
+  AIntervalMs: Integer; AExchange: TExchange): Integer;
+begin
+  if FExecEngine = nil then begin Result := -1; Exit; end;
+  Result := FExecEngine.Execute(ASymbol, AExchange, sdBuy, AQty, eaTWAP,
+    ASlices, AIntervalMs, FName);
+  EmitLog(llOrder, 'TWAP BUY ' + ASymbol + ' x' + IntToStr(AQty) +
+    ' in ' + IntToStr(ASlices) + ' slices');
+end;
+
+function TStrategy.SellTWAP(const ASymbol: AnsiString; AQty, ASlices: Integer;
+  AIntervalMs: Integer; AExchange: TExchange): Integer;
+begin
+  if FExecEngine = nil then begin Result := -1; Exit; end;
+  Result := FExecEngine.Execute(ASymbol, AExchange, sdSell, AQty, eaTWAP,
+    ASlices, AIntervalMs, FName);
+  EmitLog(llOrder, 'TWAP SELL ' + ASymbol + ' x' + IntToStr(AQty) +
+    ' in ' + IntToStr(ASlices) + ' slices');
 end;
 
 procedure TStrategy.EmitLog(ALevel: TLogLevel; const AMsg: AnsiString);

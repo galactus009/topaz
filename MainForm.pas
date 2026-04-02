@@ -21,7 +21,8 @@ uses
   LCLType,
   Apollo.Broker, Topaz.EventTypes, Topaz.Strategy, Topaz.Risk,
   Topaz.State, Topaz.Reconciler, Topaz.Session, BotWizard,
-  Topaz.IVAnalysis, Topaz.BlackScholes;
+  Topaz.IVAnalysis, Topaz.BlackScholes, Topaz.Alerts,
+  Topaz.PortfolioGreeks;
 
 type
   TEngineState = (esIdle, esStarting, esConnected, esStopping, esError);
@@ -207,6 +208,15 @@ type
     lblOpenOrders: TLabel;
     lblDailyPnL: TLabel;
     lblExposure: TLabel;
+    lblNetDelta: TLabel;
+    lblNetGamma: TLabel;
+    lblNetTheta: TLabel;
+    lblNetVega: TLabel;
+    pnlPnLBreakdown: TPanel;
+    lblRealizedPnL: TLabel;
+    lblUnrealizedPnL: TLabel;
+    lblTotalPnL: TLabel;
+    lblTotalTrades: TLabel;
     gridHealth: TStringGrid;
 
     { ── Status bar ── }
@@ -264,6 +274,8 @@ type
     FBroker: TBroker;
     FEventBus: TEventBus;
     FEngineState: TEngineState;
+    FAlerts: TAlertManager;
+    FPortfolioGreeks: TPortfolioGreeks;
     FSymbolRowMap: TDictionary<Integer, Integer>;
     FPrevLTP: array of Double;
     FBots: TList<TRunningBot>;
@@ -321,6 +333,8 @@ begin
   FSymbolRowMap := TDictionary<Integer, Integer>.Create;
   FBots := TList<TRunningBot>.Create;
   FRisk := TRiskManager.Create;
+  FAlerts := TAlertManager.Create;
+  FPortfolioGreeks := TPortfolioGreeks.Create;
   FState := TStateManager.Create;
   FState.Load;
   GSession.SetDefaults;
@@ -385,6 +399,8 @@ begin
   SaveBots;
   StopEngine;
   SaveSettings;
+  FAlerts.Free;
+  FPortfolioGreeks.Free;
   FRisk.Free;
   FState.Free;
   FSymbolRowMap.Free;
@@ -719,6 +735,12 @@ begin
         FStatusLastUpdate := Now;
       end;
     end;
+
+    // Fire alerts for critical events
+    case LogEvt.Level of
+      llRisk: FAlerts.Alert(alWarning, AnsiString(PAnsiChar(@LogEvt.Msg[0])));
+      llError: FAlerts.Alert(alWarning, AnsiString(PAnsiChar(@LogEvt.Msg[0])));
+    end;
   end;
 
   // Auto-clear status bar after 5 seconds
@@ -925,6 +947,7 @@ begin
   // Kill switch check
   if FRisk.KillSwitchTripped then
   begin
+    FAlerts.Alert(alCritical, 'KILL SWITCH TRIPPED — all trading halted');
     Log('RISK: Kill switch tripped — ' + AnsiString(FRisk.LastViolation));
     StopEngine;
   end;
@@ -938,6 +961,9 @@ procedure TfrmDashboard.RefreshHealth;
 var
   I, Row: Integer;
   Bot: TRunningBot;
+  Snap: TPortfolioGreeksSnapshot;
+  TotalRealized, TotalUnrealized, TotalPnL: Double;
+  TotalTrades: Integer;
 begin
   // Update risk status indicators
   if FRisk.KillSwitchTripped then
@@ -993,6 +1019,41 @@ begin
       gridHealth.Cells[7, Row] := '0';
     end;
   end;
+
+  // Compute and display portfolio Greeks
+  Snap := FPortfolioGreeks.Compute;
+  lblNetDelta.Caption := Format('Delta: %.1f', [Snap.NetDelta]);
+  lblNetGamma.Caption := Format('Gamma: %.2f', [Snap.NetGamma]);
+  lblNetTheta.Caption := Format('Theta: %.0f', [Snap.NetTheta]);
+  lblNetVega.Caption := Format('Vega: %.0f', [Snap.NetVega]);
+
+  // Aggregate P&L breakdown across all strategies
+  TotalRealized := 0;
+  TotalUnrealized := 0;
+  TotalTrades := 0;
+  for I := 0 to FBots.Count - 1 do
+  begin
+    Bot := FBots[I];
+    if Bot.Strategy <> nil then
+    begin
+      if Bot.Running then
+        TotalUnrealized := TotalUnrealized + Bot.Strategy.PnL
+      else
+        TotalRealized := TotalRealized + Bot.Strategy.PnL;
+      TotalTrades := TotalTrades + Bot.Strategy.TradeCount;
+    end;
+  end;
+  TotalPnL := TotalRealized + TotalUnrealized;
+
+  lblRealizedPnL.Caption := Format('Realized: %.2f', [TotalRealized]);
+  lblUnrealizedPnL.Caption := Format('Unrealized: %.2f', [TotalUnrealized]);
+  lblTotalPnL.Caption := Format('Total: %.2f', [TotalPnL]);
+  lblTotalTrades.Caption := Format('Trades: %d', [TotalTrades]);
+
+  if TotalPnL >= 0 then
+    lblTotalPnL.Font.Color := clLime
+  else
+    lblTotalPnL.Font.Color := clRed;
 end;
 
 { ═══════════════════════════════════════════════════════════════════ }

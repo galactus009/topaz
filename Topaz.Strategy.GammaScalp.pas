@@ -21,7 +21,7 @@ interface
 
 uses
   SysUtils, Math, DateUtils, Apollo.Broker, Topaz.EventTypes, Topaz.Strategy,
-  Topaz.BlackScholes;
+  Topaz.BlackScholes, Topaz.Adjustment;
 
 type
   TGammaScalpState = (gsInit, gsPositioned, gsSquaredOff);
@@ -57,6 +57,9 @@ type
     FHedgeQty: Integer;   // net underlying hedge: +ve = long, -ve = short
 
     FRFR: Double;         // risk-free rate assumption
+
+    FAdjustment: TAdjustmentEngine;
+    FAdjustConfig: TAdjustmentConfig;
 
     function TTE: Double;
     function IsTimeExit: Boolean;
@@ -112,6 +115,7 @@ begin
   FSpotSymId := -1;
   FHedgeQty := 0;
   FRFR := 0.065;  // ~6.5% India T-bill rate
+  FAdjustConfig := DefaultAdjustmentConfig(arDeltaAdjust);
 end;
 
 function TGammaScalp.DeclareParams: TArray<TStrategyParam>;
@@ -196,6 +200,8 @@ begin
   Broker.Subscribe(FCESymbol, exNFO, smQuote);
   Broker.Subscribe(FPESymbol, exNFO, smQuote);
   Broker.Subscribe(Underlying, exNSE, smQuote);
+
+  FAdjustment := TAdjustmentEngine.Create(Broker, FAdjustConfig);
 
   // Check cost: entry premium should be within MaxCostPct of spot
   FCELTP := Broker.LTP(FCESymbol, exNFO);

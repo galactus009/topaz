@@ -26,7 +26,8 @@ unit Topaz.Strategy.OptionScalper;
 interface
 
 uses
-  SysUtils, Apollo.Broker, Topaz.EventTypes, Topaz.Strategy;
+  SysUtils, DateUtils, Apollo.Broker, Topaz.EventTypes, Topaz.Strategy,
+  Topaz.Adjustment;
 
 type
   TScalperState = (ssWaiting, ssPositioned, ssSquaredOff);
@@ -58,6 +59,9 @@ type
 
     FCEOrderId: AnsiString;
     FPEOrderId: AnsiString;
+
+    FAdjustment: TAdjustmentEngine;
+    FAdjustConfig: TAdjustmentConfig;
 
     function IsEntryWindow: Boolean;
     function IsExitWindow: Boolean;
@@ -100,6 +104,7 @@ begin
   FLotSize := DEFAULT_LOT_SIZE;
   FCESymId := -1;
   FPESymId := -1;
+  FAdjustConfig := DefaultAdjustmentConfig(arRollUntested);
 end;
 
 function MkParam(const AName, ADisplay: AnsiString; AKind: TParamKind; const AValue: AnsiString): TStrategyParam;
@@ -165,12 +170,15 @@ begin
   Broker.Subscribe(FCESymbol, exNFO, smQuote);
   Broker.Subscribe(FPESymbol, exNFO, smQuote);
 
+  FAdjustment := TAdjustmentEngine.Create(Broker, FAdjustConfig);
   FState := ssWaiting;
 end;
 
 procedure TOptionScalper.OnTick(const ATick: TTickEvent);
 var
-  Premium, PnLPct: Double;
+  Premium, PnLPct, TTEYears: Double;
+  SecsLeft: Int64;
+  Action: TAdjustmentAction;
 begin
   if ATick.SymbolId = FCESymId then
     FCELTP := ATick.LTP
@@ -201,7 +209,19 @@ begin
       else if PnLPct <= -FStopPct then
         ExitPosition
       else if IsExitWindow then
-        ExitPosition;
+        ExitPosition
+      else if FAdjustment <> nil then
+      begin
+        SecsLeft := FExpiry - DateTimeToUnix(Now, False);
+        if SecsLeft > 0 then
+          TTEYears := SecsLeft / (365.0 * 24 * 3600)
+        else
+          TTEYears := 0;
+        Action := FAdjustment.CheckAdjustment(FCESymbol, FStrike, FSpotLTP,
+          True, TTEYears, 0.20, Lots * FLotSize);
+        if Length(Action.CloseLegs) > 0 then
+          EmitLog(llInfo, 'Adjustment suggested: ' + Action.Description);
+      end;
     end;
 
     ssSquaredOff:
@@ -213,6 +233,7 @@ procedure TOptionScalper.OnStop;
 begin
   if FState = ssPositioned then
     ExitPosition;
+  FreeAndNil(FAdjustment);
 end;
 
 function TOptionScalper.IsEntryWindow: Boolean;
