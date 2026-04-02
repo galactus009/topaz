@@ -661,81 +661,264 @@ object frmDashboard: TfrmDashboard
     end
     object tsSettings: TTabSheet
       Caption = 'Settings'
-      object lblBrokerLabel: TLabel
-        Left = 24
-        Height = 20
-        Top = 24
-        Width = 50
-        Caption = 'Broker'
-      end
-      object cbxBroker: TComboBox
-        Left = 120
-        Height = 26
-        Top = 22
-        Width = 160
-        ItemHeight = 0
-        Items.Strings = (
-          'Upstox'
-          'Kite'
-          'Fyers'
-          'INDmoney'
-          'Dhan'
-        )
-        ItemIndex = 0
-        Style = csDropDownList
+      object grpBroker: TGroupBox
+        Left = 8
+        Height = 180
+        Top = 8
+        Width = 620
+        Caption = 'Broker Connection'
         TabOrder = 0
+        object lblBrokerLabel: TLabel
+          Left = 16
+          Height = 20
+          Top = 24
+          Width = 50
+          Caption = 'Broker'
+        end
+        object cbxBroker: TComboBox
+          Left = 120
+          Height = 26
+          Top = 22
+          Width = 160
+          ItemHeight = 0
+          Items.Strings = (
+            'Upstox'
+            'Kite'
+            'Fyers'
+            'INDmoney'
+            'Dhan'
+          )
+          ItemIndex = 0
+          Style = csDropDownList
+          TabOrder = 0
+        end
+        object lblTokenLabel: TLabel
+          Left = 16
+          Height = 20
+          Top = 58
+          Width = 80
+          Caption = 'Access Token'
+        end
+        object edtToken: TEdit
+          Left = 120
+          Height = 26
+          Top = 56
+          Width = 480
+          TabOrder = 1
+        end
+        object lblApiKeyLabel: TLabel
+          Left = 16
+          Height = 20
+          Top = 92
+          Width = 55
+          Caption = 'API Key'
+        end
+        object edtApiKey: TEdit
+          Left = 120
+          Height = 26
+          Top = 90
+          Width = 480
+          TabOrder = 2
+        end
+        object chkAutoConnect: TCheckBox
+          Left = 120
+          Height = 22
+          Top = 124
+          Width = 120
+          Caption = 'Auto-connect on start'
+          TabOrder = 3
+        end
+        object lblSettingsStatus: TLabel
+          Left = 260
+          Height = 20
+          Top = 150
+          Width = 100
+          Caption = ''
+        end
       end
-      object lblTokenLabel: TLabel
-        Left = 24
-        Height = 20
-        Top = 64
-        Width = 80
-        Caption = 'Access Token'
-      end
-      object edtToken: TEdit
-        Left = 120
-        Height = 26
-        Top = 62
-        Width = 500
+      object grpRisk: TGroupBox
+        Left = 8
+        Height = 170
+        Top = 196
+        Width = 620
+        Caption = 'Risk Management'
         TabOrder = 1
+        object lblDailyLossLimit: TLabel
+          Left = 16
+          Height = 20
+          Top = 24
+          Width = 100
+          Caption = 'Daily Loss Limit'
+        end
+        object edtDailyLossLimit: TEdit
+          Left = 170
+          Height = 26
+          Top = 22
+          Width = 100
+          TabOrder = 0
+        end
+        object lblMaxExposure: TLabel
+          Left = 300
+          Height = 20
+          Top = 24
+          Width = 90
+          Caption = 'Max Exposure'
+        end
+        object edtMaxExposure: TEdit
+          Left = 410
+          Height = 26
+          Top = 22
+          Width = 100
+          TabOrder = 1
+        end
+        object lblStrategyLossLimit: TLabel
+          Left = 16
+          Height = 20
+          Top = 58
+          Width = 120
+          Caption = 'Strategy Loss Limit'
+        end
+        object edtStrategyLossLimit: TEdit
+          Left = 170
+          Height = 26
+          Top = 56
+          Width = 100
+          TabOrder = 2
+        end
+        object lblMaxSymbolExp: TLabel
+          Left = 300
+          Height = 20
+          Top = 58
+          Width = 105
+          Caption = 'Max Symbol Exp'
+        end
+        object edtMaxSymbolExposure: TEdit
+          Left = 410
+          Height = 26
+          Top = 56
+          Width = 100
+          TabOrder = 3
+        end
+        object lblMaxOrdersPerSec: TLabel
+          Left = 16
+          Height = 20
+          Top = 92
+          Width = 110
+          Caption = 'Max Orders/sec'
+        end
+        object edtMaxOrdersPerSec: TEdit
+          Left = 170
+          Height = 26
+          Top = 90
+          Width = 60
+          TabOrder = 4
+        end
+        object lblMaxOpenOrders: TLabel
+          Left = 300
+          Height = 20
+          Top = 92
+          Width = 105
+          Caption = 'Max Open Orders'
+        end
+        object edtMaxOpenOrders: TEdit
+          Left = 410
+          Height = 26
+          Top = 90
+          Width = 60
+          TabOrder = 5
+        end
+        object chkRiskEnabled: TCheckBox
+          Left = 16
+          Height = 22
+          Top = 130
+          Width = 120
+          Caption = 'Risk checks enabled'
+          Checked = True
+          State = cbChecked
+          TabOrder = 6
+        end
       end
-      object lblApiKeyLabel: TLabel
-        Left = 24
-        Height = 20
-        Top = 104
-        Width = 55
-        Caption = 'API Key'
-      end
-      object edtApiKey: TEdit
-        Left = 120
-        Height = 26
-        Top = 102
-        Width = 500
+      object grpTimers: TGroupBox
+        Left = 8
+        Height = 100
+        Top = 374
+        Width = 620
+        Caption = 'Timers and State'
         TabOrder = 2
-      end
-      object chkAutoConnect: TCheckBox
-        Left = 120
-        Height = 22
-        Top = 142
-        Width = 120
-        Caption = 'Auto-connect'
-        TabOrder = 3
+        object lblDrainInterval: TLabel
+          Left = 16
+          Height = 20
+          Top = 24
+          Width = 120
+          Caption = 'GUI Drain (ms)'
+        end
+        object edtDrainInterval: TEdit
+          Left = 170
+          Height = 26
+          Top = 22
+          Width = 60
+          TabOrder = 0
+        end
+        object lblPollInterval: TLabel
+          Left = 300
+          Height = 20
+          Top = 24
+          Width = 120
+          Caption = 'Poll Interval (ms)'
+        end
+        object edtPollInterval: TEdit
+          Left = 430
+          Height = 26
+          Top = 22
+          Width = 60
+          TabOrder = 1
+        end
+        object lblStateSaveInterval: TLabel
+          Left = 16
+          Height = 20
+          Top = 58
+          Width = 130
+          Caption = 'State Auto-save (sec)'
+        end
+        object edtStateSaveInterval: TEdit
+          Left = 170
+          Height = 26
+          Top = 56
+          Width = 60
+          TabOrder = 2
+        end
+        object lblDefaultWarmup: TLabel
+          Left = 300
+          Height = 20
+          Top = 58
+          Width = 120
+          Caption = 'Default Warmup'
+        end
+        object edtDefaultWarmup: TEdit
+          Left = 430
+          Height = 26
+          Top = 56
+          Width = 60
+          TabOrder = 3
+        end
       end
       object btnSaveSettings: TButton
+        Left = 8
+        Height = 30
+        Top = 484
+        Width = 100
+        Caption = 'Save All'
+        OnClick = btnSaveSettingsClick
+        TabOrder = 3
+      end
+      object btnLaunchWizard: TButton
         Left = 120
         Height = 30
-        Top = 178
-        Width = 100
-        Caption = 'Save'
-        OnClick = btnSaveSettingsClick
+        Top = 484
+        Width = 140
+        Caption = 'Launch Bot Wizard'
+        OnClick = btnLaunchWizardClick
         TabOrder = 4
-      end
-      object lblSettingsStatus: TLabel
-        Left = 240
-        Height = 20
-        Top = 183
-        Width = 100
-        Caption = ''
       end
     end
     object tsLog: TTabSheet

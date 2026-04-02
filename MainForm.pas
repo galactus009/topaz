@@ -119,6 +119,7 @@ type
     gridSearch: TStringGrid;
 
     { ── Page: Settings ── }
+    grpBroker: TGroupBox;
     cbxBroker: TComboBox;
     edtToken: TEdit;
     edtApiKey: TEdit;
@@ -128,6 +129,30 @@ type
     lblBrokerLabel: TLabel;
     lblTokenLabel: TLabel;
     lblApiKeyLabel: TLabel;
+    grpRisk: TGroupBox;
+    edtDailyLossLimit: TEdit;
+    edtMaxExposure: TEdit;
+    edtStrategyLossLimit: TEdit;
+    edtMaxSymbolExposure: TEdit;
+    edtMaxOrdersPerSec: TEdit;
+    edtMaxOpenOrders: TEdit;
+    chkRiskEnabled: TCheckBox;
+    lblDailyLossLimit: TLabel;
+    lblMaxExposure: TLabel;
+    lblStrategyLossLimit: TLabel;
+    lblMaxSymbolExp: TLabel;
+    lblMaxOrdersPerSec: TLabel;
+    lblMaxOpenOrders: TLabel;
+    grpTimers: TGroupBox;
+    edtDrainInterval: TEdit;
+    edtPollInterval: TEdit;
+    edtStateSaveInterval: TEdit;
+    edtDefaultWarmup: TEdit;
+    lblDrainInterval: TLabel;
+    lblPollInterval: TLabel;
+    lblStateSaveInterval: TLabel;
+    lblDefaultWarmup: TLabel;
+    btnLaunchWizard: TButton;
 
     { ── Page: Log ── }
     memoLog: TMemo;
@@ -170,6 +195,7 @@ type
     procedure btnPlaceOrderClick(Sender: TObject);
     procedure btnSearchClick(Sender: TObject);
     procedure btnSaveSettingsClick(Sender: TObject);
+    procedure btnLaunchWizardClick(Sender: TObject);
     procedure btnClearLogClick(Sender: TObject);
     procedure btnStratStartClick(Sender: TObject);
     procedure btnStratStopClick(Sender: TObject);
@@ -259,6 +285,19 @@ begin
     [100, 70, 60, 60, 80, 80, 70, 70]);
 
   FStatusLastUpdate := 0;
+
+  // Set defaults for settings fields before loading
+  edtDailyLossLimit.Text := '50000';
+  edtMaxExposure.Text := '500000';
+  edtStrategyLossLimit.Text := '10000';
+  edtMaxSymbolExposure.Text := '100000';
+  edtMaxOrdersPerSec.Text := '5';
+  edtMaxOpenOrders.Text := '20';
+  edtDrainInterval.Text := '50';
+  edtPollInterval.Text := '2000';
+  edtStateSaveInterval.Text := '30';
+  edtDefaultWarmup.Text := '50';
+
   PopulateStrategyCombo;
   LoadBots;
   LoadSettings;
@@ -874,7 +913,32 @@ end;
 procedure TfrmDashboard.btnSaveSettingsClick(Sender: TObject);
 begin
   SaveSettings;
+  // Apply risk settings to live risk manager
+  FRisk.DailyLossLimit := StrToFloatDef(edtDailyLossLimit.Text, FRisk.DailyLossLimit);
+  FRisk.MaxExposure := StrToFloatDef(edtMaxExposure.Text, FRisk.MaxExposure);
+  FRisk.StrategyLossLimit := StrToFloatDef(edtStrategyLossLimit.Text, FRisk.StrategyLossLimit);
+  FRisk.MaxSymbolExposure := StrToFloatDef(edtMaxSymbolExposure.Text, FRisk.MaxSymbolExposure);
+  FRisk.MaxOrdersPerSec := StrToIntDef(edtMaxOrdersPerSec.Text, FRisk.MaxOrdersPerSec);
+  FRisk.MaxOpenOrders := StrToIntDef(edtMaxOpenOrders.Text, FRisk.MaxOpenOrders);
+  FRisk.Enabled := chkRiskEnabled.Checked;
+  // Apply timer settings
+  tmrDrain.Interval := StrToIntDef(edtDrainInterval.Text, tmrDrain.Interval);
+  tmrPoll.Interval := StrToIntDef(edtPollInterval.Text, tmrPoll.Interval);
+  FState.SaveInterval := StrToIntDef(edtStateSaveInterval.Text, FState.SaveInterval);
   lblSettingsStatus.Caption := 'Saved';
+  Log('Settings saved and applied');
+end;
+
+procedure TfrmDashboard.btnLaunchWizardClick(Sender: TObject);
+begin
+  if FBroker = nil then
+  begin
+    Log('Connect to broker first, then use Strategies > Start');
+    ShowPage(PAGE_STRATEGIES);
+    HighlightNav(btnNavStrategies);
+    Exit;
+  end;
+  btnStratStartClick(Sender);
 end;
 
 procedure TfrmDashboard.btnClearLogClick(Sender: TObject);
@@ -1041,10 +1105,21 @@ begin
       begin
         Key := Trim(Copy(Line, 1, P - 1));
         Val := Trim(Copy(Line, P + 1, MaxInt));
-        if Key = 'broker' then cbxBroker.ItemIndex := cbxBroker.Items.IndexOf(Val);
-        if Key = 'token' then edtToken.Text := Val;
-        if Key = 'api_key' then edtApiKey.Text := Val;
-        if Key = 'auto_connect' then chkAutoConnect.Checked := (Val = '1');
+        if Key = 'broker' then cbxBroker.ItemIndex := cbxBroker.Items.IndexOf(Val)
+        else if Key = 'token' then edtToken.Text := Val
+        else if Key = 'api_key' then edtApiKey.Text := Val
+        else if Key = 'auto_connect' then chkAutoConnect.Checked := (Val = '1')
+        else if Key = 'daily_loss_limit' then edtDailyLossLimit.Text := Val
+        else if Key = 'max_exposure' then edtMaxExposure.Text := Val
+        else if Key = 'strategy_loss_limit' then edtStrategyLossLimit.Text := Val
+        else if Key = 'max_symbol_exposure' then edtMaxSymbolExposure.Text := Val
+        else if Key = 'max_orders_per_sec' then edtMaxOrdersPerSec.Text := Val
+        else if Key = 'max_open_orders' then edtMaxOpenOrders.Text := Val
+        else if Key = 'risk_enabled' then chkRiskEnabled.Checked := (Val = '1')
+        else if Key = 'drain_interval' then edtDrainInterval.Text := Val
+        else if Key = 'poll_interval' then edtPollInterval.Text := Val
+        else if Key = 'state_save_interval' then edtStateSaveInterval.Text := Val
+        else if Key = 'default_warmup' then edtDefaultWarmup.Text := Val;
       end;
     end;
     CloseFile(F);
@@ -1065,6 +1140,18 @@ begin
     WriteLn(F, 'api_key=' + edtApiKey.Text);
     if chkAutoConnect.Checked then WriteLn(F, 'auto_connect=1')
     else WriteLn(F, 'auto_connect=0');
+    WriteLn(F, 'daily_loss_limit=' + edtDailyLossLimit.Text);
+    WriteLn(F, 'max_exposure=' + edtMaxExposure.Text);
+    WriteLn(F, 'strategy_loss_limit=' + edtStrategyLossLimit.Text);
+    WriteLn(F, 'max_symbol_exposure=' + edtMaxSymbolExposure.Text);
+    WriteLn(F, 'max_orders_per_sec=' + edtMaxOrdersPerSec.Text);
+    WriteLn(F, 'max_open_orders=' + edtMaxOpenOrders.Text);
+    if chkRiskEnabled.Checked then WriteLn(F, 'risk_enabled=1')
+    else WriteLn(F, 'risk_enabled=0');
+    WriteLn(F, 'drain_interval=' + edtDrainInterval.Text);
+    WriteLn(F, 'poll_interval=' + edtPollInterval.Text);
+    WriteLn(F, 'state_save_interval=' + edtStateSaveInterval.Text);
+    WriteLn(F, 'default_warmup=' + edtDefaultWarmup.Text);
     CloseFile(F);
   except
     on E: Exception do Log('Save failed: ' + AnsiString(E.Message));
