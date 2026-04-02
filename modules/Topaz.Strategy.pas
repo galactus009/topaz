@@ -41,6 +41,11 @@ type
     FExchange: TExchange;
     FPnL: Double;
     FTickCount: Int64;
+    FTradeCount: Integer;
+    FWinCount: Integer;
+    FMaxDrawdown: Double;
+    FPeakPnL: Double;
+    FSharpe: Double;
     FWarmupTicks: Integer;    // ticks remaining in warmup
     FWarmedUp: Boolean;       // true once warmup complete
   protected
@@ -68,6 +73,10 @@ type
     property EventBus: TEventBus read FEventBus write FEventBus;
     property PnL: Double read FPnL write FPnL;
     property TickCount: Int64 read FTickCount;
+    property TradeCount: Integer read FTradeCount;
+    property WinCount: Integer read FWinCount;
+    property MaxDrawdown: Double read FMaxDrawdown;
+    property Sharpe: Double read FSharpe write FSharpe;
     property WarmupTicks: Integer read FWarmupTicks write FWarmupTicks;
     property WarmedUp: Boolean read FWarmedUp;
     { Strategy parameter declaration — override in subclass }
@@ -207,6 +216,7 @@ begin
   begin
     EmitLog(llOrder, 'BUY ' + ASymbol + ' x' + IntToStr(AQty) + ' → ' + Result);
     if FRisk <> nil then FRisk.OrderOpened;
+    Inc(FTradeCount);
   end;
 end;
 
@@ -236,6 +246,7 @@ begin
   begin
     EmitLog(llOrder, 'SELL ' + ASymbol + ' x' + IntToStr(AQty) + ' → ' + Result);
     if FRisk <> nil then FRisk.OrderOpened;
+    Inc(FTradeCount);
   end;
 end;
 
@@ -268,6 +279,11 @@ begin
             FStrategy.FWarmedUp := True;
         end;
         FStrategy.OnTick(Tick);
+        // Track peak PnL and max drawdown
+        if FStrategy.FPnL > FStrategy.FPeakPnL then
+          FStrategy.FPeakPnL := FStrategy.FPnL;
+        if (FStrategy.FPeakPnL - FStrategy.FPnL) > FStrategy.FMaxDrawdown then
+          FStrategy.FMaxDrawdown := FStrategy.FPeakPnL - FStrategy.FPnL;
       end
       else
         Sleep(1);  // yield when idle

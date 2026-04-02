@@ -44,6 +44,7 @@ type
     btnNavSearch: TButton;
     btnNavSettings: TButton;
     btnNavLog: TButton;
+    btnNavHealth: TButton;
     lblAppTitle: TLabel;
 
     { ── Top bar ── }
@@ -64,6 +65,7 @@ type
     tsSearch: TTabSheet;
     tsSettings: TTabSheet;
     tsLog: TTabSheet;
+    tsHealth: TTabSheet;
 
     { ── Page: Dashboard ── }
     pnlDashWatchToolbar: TPanel;
@@ -131,6 +133,20 @@ type
     memoLog: TMemo;
     btnClearLog: TButton;
 
+    { ── Page: Health ── }
+    pnlHealthTop: TPanel;
+    shpRiskLight: TShape;
+    lblRiskStatus: TLabel;
+    lblOpenOrders: TLabel;
+    lblDailyPnL: TLabel;
+    lblExposure: TLabel;
+    gridHealth: TStringGrid;
+
+    { ── Status bar ── }
+    pnlStatusBar: TPanel;
+    shpStatusIcon: TShape;
+    lblStatusMsg: TLabel;
+
     { ── Timers ── }
     tmrDrain: TTimer;
     tmrPoll: TTimer;
@@ -145,6 +161,7 @@ type
     procedure btnNavSearchClick(Sender: TObject);
     procedure btnNavSettingsClick(Sender: TObject);
     procedure btnNavLogClick(Sender: TObject);
+    procedure btnNavHealthClick(Sender: TObject);
     procedure btnStartEngineClick(Sender: TObject);
     procedure btnStopEngineClick(Sender: TObject);
     procedure btnRestartEngineClick(Sender: TObject);
@@ -167,6 +184,7 @@ type
     FBots: TList<TRunningBot>;
     FRisk: TRiskManager;
     FState: TStateManager;
+    FStatusLastUpdate: TDateTime;
 
     procedure ShowPage(AIndex: Integer);
     procedure HighlightNav(ABtn: TButton);
@@ -183,6 +201,7 @@ type
     procedure InitGridHeaders(AGrid: TStringGrid;
       const ACols: array of string; const AWidths: array of Integer);
     procedure PopulateStrategyCombo;
+    procedure RefreshHealth;
     procedure SaveBots;
     procedure LoadBots;
   end;
@@ -204,6 +223,7 @@ const
   PAGE_SEARCH     = 3;
   PAGE_SETTINGS   = 4;
   PAGE_LOG        = 5;
+  PAGE_HEALTH     = 6;
 
 { ═══════════════════════════════════════════════════════════════════ }
 {  Form lifecycle                                                     }
@@ -234,7 +254,11 @@ begin
   InitGridHeaders(gridSearch,
     ['Symbol', 'Name', 'Exchange', 'Type', 'Lot', 'Tick', 'Key'],
     [110, 150, 70, 60, 50, 50, 150]);
+  InitGridHeaders(gridHealth,
+    ['Strategy', 'Status', 'Trades', 'Win%', 'P&L', 'Max DD', 'Sharpe', 'Ticks'],
+    [100, 70, 60, 60, 80, 80, 70, 70]);
 
+  FStatusLastUpdate := 0;
   PopulateStrategyCombo;
   LoadBots;
   LoadSettings;
@@ -312,6 +336,9 @@ begin ShowPage(PAGE_SETTINGS); HighlightNav(btnNavSettings); end;
 
 procedure TfrmDashboard.btnNavLogClick(Sender: TObject);
 begin ShowPage(PAGE_LOG); HighlightNav(btnNavLog); end;
+
+procedure TfrmDashboard.btnNavHealthClick(Sender: TObject);
+begin ShowPage(PAGE_HEALTH); HighlightNav(btnNavHealth); end;
 
 { ═══════════════════════════════════════════════════════════════════ }
 {  Engine control                                                     }
@@ -524,6 +551,36 @@ begin
     end;
     Log(AnsiString(Format('[%s] %s: %s',
       [Prefix, PAnsiChar(@LogEvt.Source[0]), PAnsiChar(@LogEvt.Msg[0])])));
+
+    // Update status bar for order/risk/fill events
+    case LogEvt.Level of
+      llOrder: begin
+        lblStatusMsg.Caption := Format('[ORDER] %s: %s',
+          [PAnsiChar(@LogEvt.Source[0]), PAnsiChar(@LogEvt.Msg[0])]);
+        shpStatusIcon.Brush.Color := clLime;
+        FStatusLastUpdate := Now;
+      end;
+      llRisk: begin
+        lblStatusMsg.Caption := Format('[RISK] %s: %s',
+          [PAnsiChar(@LogEvt.Source[0]), PAnsiChar(@LogEvt.Msg[0])]);
+        shpStatusIcon.Brush.Color := clRed;
+        FStatusLastUpdate := Now;
+      end;
+      llFill: begin
+        lblStatusMsg.Caption := Format('[FILL] %s: %s',
+          [PAnsiChar(@LogEvt.Source[0]), PAnsiChar(@LogEvt.Msg[0])]);
+        shpStatusIcon.Brush.Color := clBlue;
+        FStatusLastUpdate := Now;
+      end;
+    end;
+  end;
+
+  // Auto-clear status bar after 5 seconds
+  if (FStatusLastUpdate > 0) and ((Now - FStatusLastUpdate) > (5 / 86400)) then
+  begin
+    lblStatusMsg.Caption := '';
+    shpStatusIcon.Brush.Color := clGray;
+    FStatusLastUpdate := 0;
   end;
 
   if FBroker <> nil then
@@ -620,11 +677,79 @@ begin
   FRisk.UpdateDailyPnL(Used);  // approximate from margin used
   FState.CheckAutoSave;
 
+  // Refresh health page
+  RefreshHealth;
+
   // Kill switch check
   if FRisk.KillSwitchTripped then
   begin
     Log('RISK: Kill switch tripped — ' + AnsiString(FRisk.LastViolation));
     StopEngine;
+  end;
+end;
+
+{ ═══════════════════════════════════════════════════════════════════ }
+{  Health page                                                        }
+{ ═══════════════════════════════════════════════════════════════════ }
+
+procedure TfrmDashboard.RefreshHealth;
+var
+  I, Row: Integer;
+  Bot: TRunningBot;
+begin
+  // Update risk status indicators
+  if FRisk.KillSwitchTripped then
+  begin
+    lblRiskStatus.Caption := 'Risk: KILL SWITCH';
+    shpRiskLight.Brush.Color := clRed;
+  end
+  else
+  begin
+    lblRiskStatus.Caption := 'Risk: OK';
+    shpRiskLight.Brush.Color := clLime;
+  end;
+
+  lblOpenOrders.Caption := Format('Open Orders: %d/%d',
+    [FRisk.OpenOrderCount, FRisk.MaxOpenOrders]);
+  lblDailyPnL.Caption := Format('Daily P&L: %.2f', [FRisk.DailyPnL]);
+  lblExposure.Caption := Format('Exposure: %.2f', [FRisk.Exposure]);
+
+  // Update per-strategy health grid
+  gridHealth.RowCount := 1;
+  for I := 0 to FBots.Count - 1 do
+  begin
+    Bot := FBots[I];
+    Row := gridHealth.RowCount;
+    gridHealth.RowCount := Row + 1;
+
+    gridHealth.Cells[0, Row] := string(Bot.Name);
+    if Bot.Running then
+      gridHealth.Cells[1, Row] := 'Running'
+    else
+      gridHealth.Cells[1, Row] := 'Stopped';
+
+    if Bot.Strategy <> nil then
+    begin
+      gridHealth.Cells[2, Row] := IntToStr(Bot.Strategy.TradeCount);
+      if Bot.Strategy.TradeCount > 0 then
+        gridHealth.Cells[3, Row] := FormatFloat('0.0',
+          (Bot.Strategy.WinCount / Bot.Strategy.TradeCount) * 100)
+      else
+        gridHealth.Cells[3, Row] := '0.0';
+      gridHealth.Cells[4, Row] := FormatFloat('0.00', Bot.Strategy.PnL);
+      gridHealth.Cells[5, Row] := FormatFloat('0.00', Bot.Strategy.MaxDrawdown);
+      gridHealth.Cells[6, Row] := FormatFloat('0.00', Bot.Strategy.Sharpe);
+      gridHealth.Cells[7, Row] := IntToStr(Bot.Strategy.TickCount);
+    end
+    else
+    begin
+      gridHealth.Cells[2, Row] := '0';
+      gridHealth.Cells[3, Row] := '0.0';
+      gridHealth.Cells[4, Row] := '0.00';
+      gridHealth.Cells[5, Row] := '0.00';
+      gridHealth.Cells[6, Row] := '0.00';
+      gridHealth.Cells[7, Row] := '0';
+    end;
   end;
 end;
 

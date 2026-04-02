@@ -97,6 +97,8 @@ type
     property MinMargin: Double read FMinMargin write FMinMargin;
     property KillSwitchTripped: Boolean read FKillSwitchTripped;
     property DailyPnL: Double read FDailyPnL;
+    property OpenOrderCount: Integer read FOpenOrderCount;
+    property Exposure: Double read TotalExposure;
   end;
 
 implementation

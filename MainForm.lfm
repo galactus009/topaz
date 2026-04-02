@@ -11,7 +11,32 @@ object frmDashboard: TfrmDashboard
   OnDestroy = FormDestroy
   OnCloseQuery = FormCloseQuery
   Position = poScreenCenter
-  LCLVersion = '4.6'
+  object pnlStatusBar: TPanel
+    Left = 0
+    Height = 24
+    Top = 676
+    Width = 1100
+    Align = alBottom
+    BevelOuter = bvNone
+    Color = clBtnFace
+    ParentColor = False
+    TabOrder = 3
+    object shpStatusIcon: TShape
+      Left = 4
+      Height = 12
+      Top = 6
+      Width = 12
+      Brush.Color = clGray
+      Shape = stCircle
+    end
+    object lblStatusMsg: TLabel
+      Left = 22
+      Height = 16
+      Top = 4
+      Width = 600
+      Caption = ''
+    end
+  end
   object pnlSideNav: TPanel
     Left = 0
     Height = 700
@@ -107,6 +132,18 @@ object frmDashboard: TfrmDashboard
       OnClick = btnNavLogClick
       TabOrder = 5
     end
+    object btnNavHealth: TButton
+      Left = 4
+      Height = 32
+      Top = 264
+      Width = 132
+      Caption = 'Health'
+      Color = 2105376
+      Font.Color = clWhite
+      ParentFont = False
+      OnClick = btnNavHealthClick
+      TabOrder = 6
+    end
   end
   object pnlTopBar: TPanel
     Left = 140
@@ -179,7 +216,7 @@ object frmDashboard: TfrmDashboard
   end
   object nbPages: TPageControl
     Left = 140
-    Height = 656
+    Height = 632
     Top = 44
     Width = 960
     ActivePage = tsDashboard
@@ -723,6 +760,67 @@ object frmDashboard: TfrmDashboard
         Width = 80
         Caption = 'Clear'
         OnClick = btnClearLogClick
+        TabOrder = 1
+      end
+    end
+    object tsHealth: TTabSheet
+      Caption = 'Health'
+      object pnlHealthTop: TPanel
+        Left = 0
+        Height = 40
+        Top = 0
+        Width = 952
+        Align = alTop
+        BevelOuter = bvNone
+        TabOrder = 0
+        object shpRiskLight: TShape
+          Left = 8
+          Height = 16
+          Top = 12
+          Width = 16
+          Brush.Color = clLime
+          Shape = stCircle
+        end
+        object lblRiskStatus: TLabel
+          Left = 30
+          Height = 20
+          Top = 10
+          Width = 100
+          Caption = 'Risk: OK'
+        end
+        object lblOpenOrders: TLabel
+          Left = 180
+          Height = 20
+          Top = 10
+          Width = 120
+          Caption = 'Open Orders: 0/20'
+        end
+        object lblDailyPnL: TLabel
+          Left = 350
+          Height = 20
+          Top = 10
+          Width = 120
+          Caption = 'Daily P&L: 0.00'
+        end
+        object lblExposure: TLabel
+          Left = 520
+          Height = 20
+          Top = 10
+          Width = 120
+          Caption = 'Exposure: 0.00'
+        end
+      end
+      object gridHealth: TStringGrid
+        Left = 0
+        Height = 588
+        Top = 40
+        Width = 952
+        Align = alClient
+        ColCount = 8
+        FixedCols = 0
+        RowCount = 1
+        FixedRows = 1
+        Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRangeSelect, goRowSelect]
         TabOrder = 1
       end
     end
