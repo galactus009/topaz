@@ -14,8 +14,7 @@ unit Topaz.State;
 interface
 
 uses
-  SysUtils, Classes, DateUtils,
-  {$IFDEF FPC}fpjson, jsonparser{$ELSE}System.JSON{$ENDIF};
+  SysUtils, Classes, DateUtils, fpjson, jsonparser;
 
 type
   TPositionState = record

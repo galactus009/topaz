@@ -17,8 +17,7 @@ unit Topaz.Reconciler;
 interface
 
 uses
-  SysUtils, Classes, Generics.Collections,
-  {$IFDEF FPC}fpjson, jsonparser,{$ELSE}System.JSON,{$ENDIF}
+  SysUtils, Classes, Generics.Collections, fpjson, jsonparser,
   Apollo.Broker, Topaz.State;
 
 type

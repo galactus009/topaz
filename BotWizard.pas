@@ -6,20 +6,13 @@
 }
 unit BotWizard;
 
-{$IFDEF FPC}{$mode Delphi}{$H+}{$ENDIF}
+{$mode Delphi}{$H+}
 
 interface
 
 uses
-  Classes, SysUtils,
-  {$IFDEF FPC}
-  Forms, Controls, Dialogs, StdCtrls, Spin, Grids,
-  {$ELSE}
-  FMX.Forms, FMX.Controls, FMX.Dialogs, FMX.StdCtrls,
-  FMX.SpinBox, FMX.Grid, FMX.Edit, FMX.ListBox, FMX.Types,
-  FMX.Controls.Presentation,
-  {$ENDIF}
-  Topaz.Strategy;
+  Classes, SysUtils, Forms, Controls, Dialogs,
+  StdCtrls, Spin, Grids, Topaz.Strategy;
 
 type
   TfrmBotWizard = class(TForm)
@@ -58,7 +51,7 @@ var
 
 implementation
 
-{$IFDEF FPC}{$R *.lfm}{$ELSE}{$R *.fmx}{$ENDIF}
+{$R *.lfm}
 
 procedure TfrmBotWizard.FormCreate(Sender: TObject);
 begin

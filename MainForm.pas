@@ -17,15 +17,8 @@ interface
 
 uses
   Classes, SysUtils, Generics.Collections,
-  {$IFDEF FPC}
   Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls, Grids,
   Spin, ComCtrls, Menus, LCLType,
-  {$ELSE}
-  FMX.Forms, FMX.Controls, FMX.Graphics, FMX.Dialogs, FMX.StdCtrls,
-  FMX.ExtCtrls, FMX.Grid, FMX.SpinBox, FMX.TabControl, FMX.Menus,
-  FMX.Types, FMX.Controls.Presentation, FMX.Memo, FMX.Edit,
-  FMX.ListBox, FMX.Layouts, System.UITypes,
-  {$ENDIF}
   Apollo.Broker, Topaz.EventTypes, Topaz.Strategy, Topaz.Risk,
   Topaz.State, Topaz.Reconciler, Topaz.Session, BotWizard,
   Topaz.IVAnalysis, Topaz.BlackScholes, Topaz.Alerts,
@@ -315,11 +308,10 @@ var
 
 implementation
 
-{$IFDEF FPC}{$R *.lfm}{$ELSE}{$R *.fmx}{$ENDIF}
+{$R *.lfm}
 
 uses
-  {$IFDEF FPC}fpjson, jsonparser,{$ELSE}System.JSON,{$ENDIF}
-  StrUtils, DateUtils, Math;
+  fpjson, jsonparser, StrUtils, DateUtils, Math;
 
 const
   PAGE_DASHBOARD  = 0;
