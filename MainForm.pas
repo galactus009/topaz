@@ -16,10 +16,16 @@ unit MainForm;
 interface
 
 uses
-  Classes, SysUtils, Forms, Controls, Graphics, Dialogs,
-  StdCtrls, ExtCtrls, Grids, {$IFDEF FPC}Spin,{$ELSE}Vcl.Samples.Spin,{$ENDIF}
-  ComCtrls, Menus, Generics.Collections,
-  {$IFDEF FPC}LCLType,{$ELSE}Winapi.Windows,{$ENDIF}
+  Classes, SysUtils, Generics.Collections,
+  {$IFDEF FPC}
+  Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls, Grids,
+  Spin, ComCtrls, Menus, LCLType,
+  {$ELSE}
+  FMX.Forms, FMX.Controls, FMX.Graphics, FMX.Dialogs, FMX.StdCtrls,
+  FMX.ExtCtrls, FMX.Grid, FMX.SpinBox, FMX.TabControl, FMX.Menus,
+  FMX.Types, FMX.Controls.Presentation, FMX.Memo, FMX.Edit,
+  FMX.ListBox, FMX.Layouts, System.UITypes,
+  {$ENDIF}
   Apollo.Broker, Topaz.EventTypes, Topaz.Strategy, Topaz.Risk,
   Topaz.State, Topaz.Reconciler, Topaz.Session, BotWizard,
   Topaz.IVAnalysis, Topaz.BlackScholes, Topaz.Alerts,
@@ -309,7 +315,7 @@ var
 
 implementation
 
-{$IFDEF FPC}{$R *.lfm}{$ELSE}{$R *.dfm}{$ENDIF}
+{$IFDEF FPC}{$R *.lfm}{$ELSE}{$R *.fmx}{$ENDIF}
 
 uses
   {$IFDEF FPC}fpjson, jsonparser,{$ELSE}System.JSON,{$ENDIF}

@@ -1,11 +1,12 @@
 program TopazDashboard;
 
 {$IFDEF FPC}
-  {$ERROR This is the Delphi project. Use TopazDashboard.lpr for Lazarus/FPC.}
+  {$ERROR This is the Delphi FMX project. Use TopazDashboard.lpr for Lazarus/FPC.}
 {$ENDIF}
 
 uses
-  Vcl.Forms,
+  System.StartUpCopy,
+  FMX.Forms,
   MainForm in 'MainForm.pas' {frmDashboard},
   BotWizard in 'BotWizard.pas' {frmBotWizard},
   Apollo.Broker in 'modules\Apollo.Broker.pas',
@@ -48,7 +49,6 @@ uses
 
 begin
   Application.Initialize;
-  Application.MainFormOnTaskbar := True;
   Application.CreateForm(TfrmDashboard, frmDashboard);
   Application.Run;
 end.

@@ -37,7 +37,10 @@ unit XGBoost.Wrapper;
 interface
 
 uses
-  SysUtils, {$IFDEF FPC}DynLibs{$ELSE}Winapi.Windows{$ENDIF};
+  SysUtils,
+  {$IFDEF FPC}DynLibs{$ENDIF}
+  {$IFDEF MSWINDOWS}Winapi.Windows{$ENDIF}
+  {$IF DEFINED(MACOS) AND NOT DEFINED(FPC)}Posix.Dlfcn{$ENDIF};
 
 type
   TSingleArray = array of Single;
