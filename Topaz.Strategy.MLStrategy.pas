@@ -52,13 +52,15 @@ type
     FCooldown: Integer;
     FInPosition: Boolean;
     FPositionSide: Integer;  // 1=long, -1=short
-    FWarmupTicks: Integer;
   protected
     procedure OnStart; override;
     procedure OnTick(const ATick: TTickEvent); override;
     procedure OnStop; override;
   public
     constructor Create;
+    function DeclareParams: TArray<TStrategyParam>; override;
+    procedure ApplyParam(const AName, AValue: AnsiString); override;
+    function GetParamValue(const AName: AnsiString): AnsiString; override;
     property ModelPath: AnsiString read FModelPath write FModelPath;
     property ThresholdBuy: Double read FThresholdBuy write FThresholdBuy;
     property ThresholdSell: Double read FThresholdSell write FThresholdSell;
@@ -69,8 +71,15 @@ implementation
 
 const
   NUM_FEATURES = 8;
-  DEFAULT_WARMUP = 60;
   DEFAULT_COOLDOWN = 30;
+
+function MkParam(const AName, ADisplay: AnsiString; AKind: TParamKind; const AValue: AnsiString): TStrategyParam;
+begin
+  Result.Name := AName;
+  Result.Display := ADisplay;
+  Result.Kind := AKind;
+  Result.Value := AValue;
+end;
 
 constructor TMLStrategy.Create;
 begin
@@ -79,15 +88,38 @@ begin
   FThresholdBuy := 0.65;
   FThresholdSell := 0.35;
   FCooldown := DEFAULT_COOLDOWN;
-  FWarmupTicks := DEFAULT_WARMUP;
   FInPosition := False;
   FPositionSide := 0;
+end;
+
+function TMLStrategy.DeclareParams: TArray<TStrategyParam>;
+begin
+  SetLength(Result, 3);
+  Result[0] := MkParam('threshold_buy', 'Threshold Buy', pkFloat, FloatToStr(FThresholdBuy));
+  Result[1] := MkParam('threshold_sell', 'Threshold Sell', pkFloat, FloatToStr(FThresholdSell));
+  Result[2] := MkParam('cooldown', 'Cooldown', pkInteger, IntToStr(FCooldown));
+end;
+
+procedure TMLStrategy.ApplyParam(const AName, AValue: AnsiString);
+begin
+  if AName = 'threshold_buy' then FThresholdBuy := StrToFloatDef(string(AValue), FThresholdBuy)
+  else if AName = 'threshold_sell' then FThresholdSell := StrToFloatDef(string(AValue), FThresholdSell)
+  else if AName = 'cooldown' then FCooldown := StrToIntDef(string(AValue), FCooldown);
+end;
+
+function TMLStrategy.GetParamValue(const AName: AnsiString): AnsiString;
+begin
+  if AName = 'threshold_buy' then Result := FloatToStr(FThresholdBuy)
+  else if AName = 'threshold_sell' then Result := FloatToStr(FThresholdSell)
+  else if AName = 'cooldown' then Result := IntToStr(FCooldown)
+  else Result := '';
 end;
 
 procedure TMLStrategy.OnStart;
 var
   Zeros: array[0..NUM_FEATURES-1] of Single;
 begin
+  inherited;
   FRSI.Init(14);
   FMACD.Init(12, 26, 9);
   FBB.Init(20, 2.0);
@@ -126,8 +158,7 @@ begin
   FROC.Update(ATick.LTP);
   FStoch.Update(ATick.LTP, ATick.LTP, ATick.LTP);  // using LTP as H/L/C for tick data
 
-  Dec(FWarmupTicks);
-  if FWarmupTicks > 0 then Exit;
+  if not WarmedUp then Exit;
 
   Inc(FTicksSinceSignal);
   if FTicksSinceSignal < FCooldown then Exit;

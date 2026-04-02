@@ -77,6 +77,9 @@ type
     procedure OnStop; override;
   public
     constructor Create;
+    function DeclareParams: TArray<TStrategyParam>; override;
+    procedure ApplyParam(const AName, AValue: AnsiString); override;
+    function GetParamValue(const AName: AnsiString): AnsiString; override;
     property DefaultMode: AnsiString read FDefaultMode write FDefaultMode;
     property ProfitTargetPct: Double read FProfitTargetPct write FProfitTargetPct;
     property MaxLossPct: Double read FMaxLossPct write FMaxLossPct;
@@ -87,6 +90,14 @@ implementation
 
 const
   DEFAULT_LOT_SIZE = 75;
+
+function MkParam(const AName, ADisplay: AnsiString; AKind: TParamKind; const AValue: AnsiString): TStrategyParam;
+begin
+  Result.Name := AName;
+  Result.Display := ADisplay;
+  Result.Kind := AKind;
+  Result.Value := AValue;
+end;
 
 { ── Constructor ── }
 
@@ -106,10 +117,37 @@ begin
   FAdjustmentCount := 0;
 end;
 
+function TExpiryGammaStrategy.DeclareParams: TArray<TStrategyParam>;
+begin
+  SetLength(Result, 4);
+  Result[0] := MkParam('default_mode', 'Default Mode', pkString, FDefaultMode);
+  Result[1] := MkParam('profit_target_pct', 'Profit Target %', pkFloat, FloatToStr(FProfitTargetPct));
+  Result[2] := MkParam('max_loss_pct', 'Max Loss %', pkFloat, FloatToStr(FMaxLossPct));
+  Result[3] := MkParam('max_adjustments', 'Max Adjustments', pkInteger, IntToStr(FMaxAdjustments));
+end;
+
+procedure TExpiryGammaStrategy.ApplyParam(const AName, AValue: AnsiString);
+begin
+  if AName = 'default_mode' then FDefaultMode := AValue
+  else if AName = 'profit_target_pct' then FProfitTargetPct := StrToFloatDef(string(AValue), FProfitTargetPct)
+  else if AName = 'max_loss_pct' then FMaxLossPct := StrToFloatDef(string(AValue), FMaxLossPct)
+  else if AName = 'max_adjustments' then FMaxAdjustments := StrToIntDef(string(AValue), FMaxAdjustments);
+end;
+
+function TExpiryGammaStrategy.GetParamValue(const AName: AnsiString): AnsiString;
+begin
+  if AName = 'default_mode' then Result := FDefaultMode
+  else if AName = 'profit_target_pct' then Result := FloatToStr(FProfitTargetPct)
+  else if AName = 'max_loss_pct' then Result := FloatToStr(FMaxLossPct)
+  else if AName = 'max_adjustments' then Result := IntToStr(FMaxAdjustments)
+  else Result := '';
+end;
+
 { ── Lifecycle ── }
 
 procedure TExpiryGammaStrategy.OnStart;
 begin
+  inherited;
   FIsSelling := (FDefaultMode = 'sell');
 
   { Check if today is Thursday (weekly expiry) }
@@ -148,7 +186,7 @@ begin
   if FSkipDay then Exit;
   if FState = gsSquaredOff then Exit;
 
-  { Route tick to correct leg }
+  { Route tick to correct leg — always update prices even during warmup }
   if ATick.SymbolId = FCESymId then
   begin
     FCELTP := ATick.LTP;
@@ -161,6 +199,8 @@ begin
   end
   else
     FSpotLTP := ATick.LTP;
+
+  if not WarmedUp then Exit;
 
   case FState of
     gsWaiting:

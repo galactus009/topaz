@@ -50,9 +50,6 @@ type
     FHighWatermark: Double;     // best price since entry (long)
     FLowWatermark: Double;      // best price since entry (short)
 
-    { Warmup }
-    FWarmup: Integer;
-
     function Velocity(APrice: Double): Double;
     function TimeExitDue: Boolean;
   protected
@@ -61,6 +58,9 @@ type
     procedure OnStop; override;
   public
     constructor Create;
+    function DeclareParams: TArray<TStrategyParam>; override;
+    procedure ApplyParam(const AName, AValue: AnsiString); override;
+    function GetParamValue(const AName: AnsiString): AnsiString; override;
     property FastPeriod: Integer read FFastPeriod write FFastPeriod;
     property SlowPeriod: Integer read FSlowPeriod write FSlowPeriod;
     property VelocityPeriod: Integer read FVelocityPeriod write FVelocityPeriod;
@@ -72,6 +72,14 @@ type
   end;
 
 implementation
+
+function MkParam(const AName, ADisplay: AnsiString; AKind: TParamKind; const AValue: AnsiString): TStrategyParam;
+begin
+  Result.Name := AName;
+  Result.Display := ADisplay;
+  Result.Kind := AKind;
+  Result.Value := AValue;
+end;
 
 { ── Constructor ── }
 
@@ -87,6 +95,38 @@ begin
   FMaxLoss := 5000.0;
   FTPMultiplier := 3.0;
   FInPosition := False;
+end;
+
+function TMomentumStrategy.DeclareParams: TArray<TStrategyParam>;
+begin
+  SetLength(Result, 6);
+  Result[0] := MkParam('fast_period', 'Fast Period', pkInteger, IntToStr(FFastPeriod));
+  Result[1] := MkParam('slow_period', 'Slow Period', pkInteger, IntToStr(FSlowPeriod));
+  Result[2] := MkParam('atr_multiplier', 'ATR Multiplier', pkFloat, FloatToStr(FATRMultiplier));
+  Result[3] := MkParam('velocity_threshold', 'Velocity Threshold', pkFloat, FloatToStr(FVelocityThreshold));
+  Result[4] := MkParam('max_loss', 'Max Loss', pkFloat, FloatToStr(FMaxLoss));
+  Result[5] := MkParam('take_profit_atr', 'Take Profit ATR', pkFloat, FloatToStr(FTPMultiplier));
+end;
+
+procedure TMomentumStrategy.ApplyParam(const AName, AValue: AnsiString);
+begin
+  if AName = 'fast_period' then FFastPeriod := StrToIntDef(string(AValue), FFastPeriod)
+  else if AName = 'slow_period' then FSlowPeriod := StrToIntDef(string(AValue), FSlowPeriod)
+  else if AName = 'atr_multiplier' then FATRMultiplier := StrToFloatDef(string(AValue), FATRMultiplier)
+  else if AName = 'velocity_threshold' then FVelocityThreshold := StrToFloatDef(string(AValue), FVelocityThreshold)
+  else if AName = 'max_loss' then FMaxLoss := StrToFloatDef(string(AValue), FMaxLoss)
+  else if AName = 'take_profit_atr' then FTPMultiplier := StrToFloatDef(string(AValue), FTPMultiplier);
+end;
+
+function TMomentumStrategy.GetParamValue(const AName: AnsiString): AnsiString;
+begin
+  if AName = 'fast_period' then Result := IntToStr(FFastPeriod)
+  else if AName = 'slow_period' then Result := IntToStr(FSlowPeriod)
+  else if AName = 'atr_multiplier' then Result := FloatToStr(FATRMultiplier)
+  else if AName = 'velocity_threshold' then Result := FloatToStr(FVelocityThreshold)
+  else if AName = 'max_loss' then Result := FloatToStr(FMaxLoss)
+  else if AName = 'take_profit_atr' then Result := FloatToStr(FTPMultiplier)
+  else Result := '';
 end;
 
 { ── Velocity helper ── }
@@ -126,6 +166,7 @@ end;
 
 procedure TMomentumStrategy.OnStart;
 begin
+  inherited;
   FFastEMA.Init(FFastPeriod);
   FSlowEMA.Init(FSlowPeriod);
   FATR.Init(FATRPeriod);
@@ -134,7 +175,6 @@ begin
   FVelCount := 0;
   FillChar(FVelBuf, SizeOf(FVelBuf), 0);
 
-  FWarmup := FSlowPeriod + FVelocityPeriod;
   FInPosition := False;
 end;
 
@@ -150,12 +190,7 @@ begin
   ATRVal := FATR.Update(ATick.LTP, ATick.LTP, ATick.LTP);
   Vel := Velocity(ATick.LTP);
 
-  { Warmup }
-  if FWarmup > 0 then
-  begin
-    Dec(FWarmup);
-    Exit;
-  end;
+  if not WarmedUp then Exit;
 
   { ── Exit logic ── }
   if FInPosition then

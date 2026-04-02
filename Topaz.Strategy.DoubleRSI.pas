@@ -55,14 +55,15 @@ type
     FEntryPrice: Double;
     FBestPrice: Double;         // best price since entry (for trailing)
 
-    { Warmup }
-    FWarmup: Integer;
   protected
     procedure OnStart; override;
     procedure OnTick(const ATick: TTickEvent); override;
     procedure OnStop; override;
   public
     constructor Create;
+    function DeclareParams: TArray<TStrategyParam>; override;
+    procedure ApplyParam(const AName, AValue: AnsiString); override;
+    function GetParamValue(const AName: AnsiString): AnsiString; override;
     property FastRSIPeriod: Integer read FFastRSIPeriod write FFastRSIPeriod;
     property SlowRSIPeriod: Integer read FSlowRSIPeriod write FSlowRSIPeriod;
     property Oversold: Double read FOversold write FOversold;
@@ -75,6 +76,14 @@ type
   end;
 
 implementation
+
+function MkParam(const AName, ADisplay: AnsiString; AKind: TParamKind; const AValue: AnsiString): TStrategyParam;
+begin
+  Result.Name := AName;
+  Result.Display := ADisplay;
+  Result.Kind := AKind;
+  Result.Value := AValue;
+end;
 
 { ── Constructor ── }
 
@@ -93,10 +102,43 @@ begin
   FInPosition := False;
 end;
 
+function TDoubleRSIStrategy.DeclareParams: TArray<TStrategyParam>;
+begin
+  SetLength(Result, 6);
+  Result[0] := MkParam('fast_rsi_period', 'Fast RSI Period', pkInteger, IntToStr(FFastRSIPeriod));
+  Result[1] := MkParam('slow_rsi_period', 'Slow RSI Period', pkInteger, IntToStr(FSlowRSIPeriod));
+  Result[2] := MkParam('oversold', 'Oversold', pkFloat, FloatToStr(FOversold));
+  Result[3] := MkParam('overbought', 'Overbought', pkFloat, FloatToStr(FOverbought));
+  Result[4] := MkParam('stop_loss_pct', 'Stop Loss %', pkFloat, FloatToStr(FStopLossPct));
+  Result[5] := MkParam('trailing_stop_pct', 'Trailing Stop %', pkFloat, FloatToStr(FTrailingStopPct));
+end;
+
+procedure TDoubleRSIStrategy.ApplyParam(const AName, AValue: AnsiString);
+begin
+  if AName = 'fast_rsi_period' then FFastRSIPeriod := StrToIntDef(string(AValue), FFastRSIPeriod)
+  else if AName = 'slow_rsi_period' then FSlowRSIPeriod := StrToIntDef(string(AValue), FSlowRSIPeriod)
+  else if AName = 'oversold' then FOversold := StrToFloatDef(string(AValue), FOversold)
+  else if AName = 'overbought' then FOverbought := StrToFloatDef(string(AValue), FOverbought)
+  else if AName = 'stop_loss_pct' then FStopLossPct := StrToFloatDef(string(AValue), FStopLossPct)
+  else if AName = 'trailing_stop_pct' then FTrailingStopPct := StrToFloatDef(string(AValue), FTrailingStopPct);
+end;
+
+function TDoubleRSIStrategy.GetParamValue(const AName: AnsiString): AnsiString;
+begin
+  if AName = 'fast_rsi_period' then Result := IntToStr(FFastRSIPeriod)
+  else if AName = 'slow_rsi_period' then Result := IntToStr(FSlowRSIPeriod)
+  else if AName = 'oversold' then Result := FloatToStr(FOversold)
+  else if AName = 'overbought' then Result := FloatToStr(FOverbought)
+  else if AName = 'stop_loss_pct' then Result := FloatToStr(FStopLossPct)
+  else if AName = 'trailing_stop_pct' then Result := FloatToStr(FTrailingStopPct)
+  else Result := '';
+end;
+
 { ── Lifecycle ── }
 
 procedure TDoubleRSIStrategy.OnStart;
 begin
+  inherited;
   FFastRSI.Init(FFastRSIPeriod);
   FSlowRSI.Init(FSlowRSIPeriod);
   FHTFRSI.Init(FSlowRSIPeriod);
@@ -107,7 +149,6 @@ begin
   FPrevFastRSI := 50.0;
   FPrevSlowRSI := 50.0;
 
-  FWarmup := FSlowRSIPeriod + FHTFMultiplier;
   FInPosition := False;
 end;
 
@@ -141,12 +182,7 @@ begin
   FPrevFastRSI := FastVal;
   FPrevSlowRSI := SlowVal;
 
-  { Warmup }
-  if FWarmup > 0 then
-  begin
-    Dec(FWarmup);
-    Exit;
-  end;
+  if not WarmedUp then Exit;
 
   { ── Exit logic ── }
   if FInPosition then

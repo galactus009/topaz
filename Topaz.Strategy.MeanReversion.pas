@@ -54,6 +54,9 @@ type
     procedure OnStop; override;
   public
     constructor Create;
+    function DeclareParams: TArray<TStrategyParam>; override;
+    procedure ApplyParam(const AName, AValue: AnsiString); override;
+    function GetParamValue(const AName: AnsiString): AnsiString; override;
     property Lookback: Integer read FLookback write FLookback;
     property EntryZ: Double read FEntryZ write FEntryZ;
     property ExitZ: Double read FExitZ write FExitZ;
@@ -64,6 +67,14 @@ type
   end;
 
 implementation
+
+function MkParam(const AName, ADisplay: AnsiString; AKind: TParamKind; const AValue: AnsiString): TStrategyParam;
+begin
+  Result.Name := AName;
+  Result.Display := ADisplay;
+  Result.Kind := AKind;
+  Result.Value := AValue;
+end;
 
 { ── Constructor ── }
 
@@ -78,6 +89,35 @@ begin
   FRSIOverbought := 70.0;
   FCooldownTicks := 50;
   FInPosition := False;
+end;
+
+function TMeanReversionStrategy.DeclareParams: TArray<TStrategyParam>;
+begin
+  SetLength(Result, 5);
+  Result[0] := MkParam('lookback', 'Lookback', pkInteger, IntToStr(FLookback));
+  Result[1] := MkParam('entry_z', 'Entry Z', pkFloat, FloatToStr(FEntryZ));
+  Result[2] := MkParam('exit_z', 'Exit Z', pkFloat, FloatToStr(FExitZ));
+  Result[3] := MkParam('stop_z', 'Stop Z', pkFloat, FloatToStr(FStopZ));
+  Result[4] := MkParam('cooldown', 'Cooldown', pkInteger, IntToStr(FCooldownTicks));
+end;
+
+procedure TMeanReversionStrategy.ApplyParam(const AName, AValue: AnsiString);
+begin
+  if AName = 'lookback' then FLookback := StrToIntDef(string(AValue), FLookback)
+  else if AName = 'entry_z' then FEntryZ := StrToFloatDef(string(AValue), FEntryZ)
+  else if AName = 'exit_z' then FExitZ := StrToFloatDef(string(AValue), FExitZ)
+  else if AName = 'stop_z' then FStopZ := StrToFloatDef(string(AValue), FStopZ)
+  else if AName = 'cooldown' then FCooldownTicks := StrToIntDef(string(AValue), FCooldownTicks);
+end;
+
+function TMeanReversionStrategy.GetParamValue(const AName: AnsiString): AnsiString;
+begin
+  if AName = 'lookback' then Result := IntToStr(FLookback)
+  else if AName = 'entry_z' then Result := FloatToStr(FEntryZ)
+  else if AName = 'exit_z' then Result := FloatToStr(FExitZ)
+  else if AName = 'stop_z' then Result := FloatToStr(FStopZ)
+  else if AName = 'cooldown' then Result := IntToStr(FCooldownTicks)
+  else Result := '';
 end;
 
 { ── Z-score from rolling buffer ── }
@@ -115,6 +155,7 @@ end;
 
 procedure TMeanReversionStrategy.OnStart;
 begin
+  inherited;
   FSMA.Init(FLookback);
   FRSI.Init(14);
 
@@ -134,6 +175,8 @@ begin
   FSMA.Update(ATick.LTP);
   RSIVal := FRSI.Update(ATick.LTP);
   Z := CalcZScore(ATick.LTP);
+
+  if not WarmedUp then Exit;
 
   { Wait for indicators to be ready }
   if not (FSMA.Ready and FRSI.Ready) then Exit;

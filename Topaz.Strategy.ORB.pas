@@ -89,6 +89,9 @@ type
     function CurrentTimePastExit: Boolean;
   public
     constructor Create;
+    function DeclareParams: TArray<TStrategyParam>; override;
+    procedure ApplyParam(const AName, AValue: AnsiString); override;
+    function GetParamValue(const AName: AnsiString): AnsiString; override;
     property RangeCandles: Integer read FRangeCandles write FRangeCandles;
     property StopLossPct: Double read FStopLossPct write FStopLossPct;
     property TrailingStopPct: Double read FTrailingStopPct write FTrailingStopPct;
@@ -104,6 +107,14 @@ const
   FORCE_EXIT_HOUR    = 15;
   FORCE_EXIT_MIN     = 20;
 
+function MkParam(const AName, ADisplay: AnsiString; AKind: TParamKind; const AValue: AnsiString): TStrategyParam;
+begin
+  Result.Name := AName;
+  Result.Display := ADisplay;
+  Result.Kind := AKind;
+  Result.Value := AValue;
+end;
+
 { ── Constructor ── }
 
 constructor TORBStrategy.Create;
@@ -117,10 +128,43 @@ begin
   FAllowShort := True;
 end;
 
+function TORBStrategy.DeclareParams: TArray<TStrategyParam>;
+begin
+  SetLength(Result, 6);
+  Result[0] := MkParam('range_candles', 'Range Candles', pkInteger, IntToStr(FRangeCandles));
+  Result[1] := MkParam('stop_loss_pct', 'Stop Loss %', pkFloat, FloatToStr(FStopLossPct));
+  Result[2] := MkParam('trailing_stop_pct', 'Trailing Stop %', pkFloat, FloatToStr(FTrailingStopPct));
+  Result[3] := MkParam('volume_surge_mult', 'Volume Surge Mult', pkFloat, FloatToStr(FVolumeSurgeMult));
+  Result[4] := MkParam('max_trades', 'Max Trades', pkInteger, IntToStr(FMaxTrades));
+  Result[5] := MkParam('allow_short', 'Allow Short', pkBoolean, BoolToStr(FAllowShort, True));
+end;
+
+procedure TORBStrategy.ApplyParam(const AName, AValue: AnsiString);
+begin
+  if AName = 'range_candles' then FRangeCandles := StrToIntDef(string(AValue), FRangeCandles)
+  else if AName = 'stop_loss_pct' then FStopLossPct := StrToFloatDef(string(AValue), FStopLossPct)
+  else if AName = 'trailing_stop_pct' then FTrailingStopPct := StrToFloatDef(string(AValue), FTrailingStopPct)
+  else if AName = 'volume_surge_mult' then FVolumeSurgeMult := StrToFloatDef(string(AValue), FVolumeSurgeMult)
+  else if AName = 'max_trades' then FMaxTrades := StrToIntDef(string(AValue), FMaxTrades)
+  else if AName = 'allow_short' then FAllowShort := (AValue = 'True') or (AValue = 'true') or (AValue = '1');
+end;
+
+function TORBStrategy.GetParamValue(const AName: AnsiString): AnsiString;
+begin
+  if AName = 'range_candles' then Result := IntToStr(FRangeCandles)
+  else if AName = 'stop_loss_pct' then Result := FloatToStr(FStopLossPct)
+  else if AName = 'trailing_stop_pct' then Result := FloatToStr(FTrailingStopPct)
+  else if AName = 'volume_surge_mult' then Result := FloatToStr(FVolumeSurgeMult)
+  else if AName = 'max_trades' then Result := IntToStr(FMaxTrades)
+  else if AName = 'allow_short' then Result := BoolToStr(FAllowShort, True)
+  else Result := '';
+end;
+
 { ── Lifecycle ── }
 
 procedure TORBStrategy.OnStart;
 begin
+  inherited;
   FPhase := opForming;
   FRangeHigh := -1e18;
   FRangeLow := 1e18;
@@ -149,6 +193,7 @@ var
   TickSec: Int64;
 begin
   if FDayDone then Exit;
+  if not WarmedUp then Exit;
 
   { Force exit check by wall clock }
   if CurrentTimePastExit then

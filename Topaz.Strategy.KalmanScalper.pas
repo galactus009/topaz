@@ -52,7 +52,6 @@ type
 
     FPrevVelocity: Double;
     FPrevVolume: Int64;
-    FWarmup: Integer;
 
     FModelPath: AnsiString;
     FEntryThreshold: Double;
@@ -73,6 +72,9 @@ type
     procedure OnStop; override;
   public
     constructor Create;
+    function DeclareParams: TArray<TStrategyParam>; override;
+    procedure ApplyParam(const AName, AValue: AnsiString); override;
+    function GetParamValue(const AName: AnsiString): AnsiString; override;
     property ModelPath: AnsiString read FModelPath write FModelPath;
     property EntryThreshold: Double read FEntryThreshold write FEntryThreshold;
     property ExitThreshold: Double read FExitThreshold write FExitThreshold;
@@ -84,6 +86,14 @@ implementation
 
 const
   NUM_FEATURES = 10;
+
+function MkParam(const AName, ADisplay: AnsiString; AKind: TParamKind; const AValue: AnsiString): TStrategyParam;
+begin
+  Result.Name := AName;
+  Result.Display := ADisplay;
+  Result.Kind := AKind;
+  Result.Value := AValue;
+end;
 
 constructor TKalmanScalper.Create;
 begin
@@ -98,10 +108,40 @@ begin
   FInPosition := False;
 end;
 
+function TKalmanScalper.DeclareParams: TArray<TStrategyParam>;
+begin
+  SetLength(Result, 5);
+  Result[0] := MkParam('entry_threshold', 'Entry Threshold', pkFloat, FloatToStr(FEntryThreshold));
+  Result[1] := MkParam('exit_threshold', 'Exit Threshold', pkFloat, FloatToStr(FExitThreshold));
+  Result[2] := MkParam('target_points', 'Target Points', pkFloat, FloatToStr(FTargetPoints));
+  Result[3] := MkParam('stop_points', 'Stop Points', pkFloat, FloatToStr(FStopPoints));
+  Result[4] := MkParam('cooldown_ticks', 'Cooldown Ticks', pkInteger, IntToStr(FCooldownTicks));
+end;
+
+procedure TKalmanScalper.ApplyParam(const AName, AValue: AnsiString);
+begin
+  if AName = 'entry_threshold' then FEntryThreshold := StrToFloatDef(string(AValue), FEntryThreshold)
+  else if AName = 'exit_threshold' then FExitThreshold := StrToFloatDef(string(AValue), FExitThreshold)
+  else if AName = 'target_points' then FTargetPoints := StrToFloatDef(string(AValue), FTargetPoints)
+  else if AName = 'stop_points' then FStopPoints := StrToFloatDef(string(AValue), FStopPoints)
+  else if AName = 'cooldown_ticks' then FCooldownTicks := StrToIntDef(string(AValue), FCooldownTicks);
+end;
+
+function TKalmanScalper.GetParamValue(const AName: AnsiString): AnsiString;
+begin
+  if AName = 'entry_threshold' then Result := FloatToStr(FEntryThreshold)
+  else if AName = 'exit_threshold' then Result := FloatToStr(FExitThreshold)
+  else if AName = 'target_points' then Result := FloatToStr(FTargetPoints)
+  else if AName = 'stop_points' then Result := FloatToStr(FStopPoints)
+  else if AName = 'cooldown_ticks' then Result := IntToStr(FCooldownTicks)
+  else Result := '';
+end;
+
 procedure TKalmanScalper.OnStart;
 var
   Zeros: array[0..NUM_FEATURES-1] of Single;
 begin
+  inherited;
   // Kalman: low process noise (smooth), moderate measurement noise
   FKalman.Init(0.005, 0.5);
   FRSI.Init(7);
@@ -112,7 +152,6 @@ begin
 
   FPrevVelocity := 0;
   FPrevVolume := 0;
-  FWarmup := 30;
   FTicksSinceOrder := FCooldownTicks;
 
   if FModelPath = '' then
@@ -155,8 +194,7 @@ begin
     FVolSMA.Update(0);
   FPrevVolume := ATick.Volume;
 
-  // Warmup
-  if FWarmup > 0 then begin Dec(FWarmup); Exit; end;
+  if not WarmedUp then Exit;
 
   // If in position, check exits first
   if FInPosition then

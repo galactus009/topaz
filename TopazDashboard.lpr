@@ -7,6 +7,7 @@ uses
   Interfaces,
   Forms,
   MainForm,
+  BotWizard,
   Topaz.Strategy.OptionScalper,
   Topaz.Strategy.MLStrategy,
   Topaz.Strategy.KalmanScalper,

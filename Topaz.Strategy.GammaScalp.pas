@@ -69,6 +69,9 @@ type
     procedure OnStop; override;
   public
     constructor Create;
+    function DeclareParams: TArray<TStrategyParam>; override;
+    procedure ApplyParam(const AName, AValue: AnsiString); override;
+    function GetParamValue(const AName: AnsiString): AnsiString; override;
     property DeltaThreshold: Double read FDeltaThreshold write FDeltaThreshold;
     property MaxCostPct: Double read FMaxCostPct write FMaxCostPct;
     property MaxDTE: Integer read FMaxDTE write FMaxDTE;
@@ -82,6 +85,14 @@ const
   DEFAULT_LOT_SIZE = 75;
   EXIT_HOUR = 15;
   EXIT_MIN  = 20;
+
+function MkParam(const AName, ADisplay: AnsiString; AKind: TParamKind; const AValue: AnsiString): TStrategyParam;
+begin
+  Result.Name := AName;
+  Result.Display := ADisplay;
+  Result.Kind := AKind;
+  Result.Value := AValue;
+end;
 
 { ── Constructor ── }
 
@@ -101,6 +112,32 @@ begin
   FSpotSymId := -1;
   FHedgeQty := 0;
   FRFR := 0.065;  // ~6.5% India T-bill rate
+end;
+
+function TGammaScalp.DeclareParams: TArray<TStrategyParam>;
+begin
+  SetLength(Result, 4);
+  Result[0] := MkParam('delta_threshold', 'Delta Threshold', pkFloat, FloatToStr(FDeltaThreshold));
+  Result[1] := MkParam('max_cost_pct', 'Max Cost %', pkFloat, FloatToStr(FMaxCostPct));
+  Result[2] := MkParam('estimated_iv', 'Estimated IV', pkFloat, FloatToStr(FEstimatedIV));
+  Result[3] := MkParam('price_trigger', 'Price Trigger', pkFloat, FloatToStr(FPriceTrigger));
+end;
+
+procedure TGammaScalp.ApplyParam(const AName, AValue: AnsiString);
+begin
+  if AName = 'delta_threshold' then FDeltaThreshold := StrToFloatDef(string(AValue), FDeltaThreshold)
+  else if AName = 'max_cost_pct' then FMaxCostPct := StrToFloatDef(string(AValue), FMaxCostPct)
+  else if AName = 'estimated_iv' then FEstimatedIV := StrToFloatDef(string(AValue), FEstimatedIV)
+  else if AName = 'price_trigger' then FPriceTrigger := StrToFloatDef(string(AValue), FPriceTrigger);
+end;
+
+function TGammaScalp.GetParamValue(const AName: AnsiString): AnsiString;
+begin
+  if AName = 'delta_threshold' then Result := FloatToStr(FDeltaThreshold)
+  else if AName = 'max_cost_pct' then Result := FloatToStr(FMaxCostPct)
+  else if AName = 'estimated_iv' then Result := FloatToStr(FEstimatedIV)
+  else if AName = 'price_trigger' then Result := FloatToStr(FPriceTrigger)
+  else Result := '';
 end;
 
 { ── Time to expiry in years ── }
@@ -132,6 +169,7 @@ procedure TGammaScalp.OnStart;
 var
   Spot: Double;
 begin
+  inherited;
   if Broker = nil then Exit;
   if Underlying = '' then Underlying := 'NIFTY 50';
 
@@ -285,6 +323,8 @@ begin
   else if (ATick.SymbolId = FSpotSymId) or
           ((FCESymId < 0) and (FPESymId < 0)) then
     FSpotLTP := ATick.LTP;
+
+  if not WarmedUp then Exit;
 
   case FState of
     gsInit:

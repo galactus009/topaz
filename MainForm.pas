@@ -18,7 +18,7 @@ interface
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs,
   StdCtrls, ExtCtrls, Grids, Spin, ComCtrls, Generics.Collections,
-  Apollo.Broker, Topaz.EventTypes, Topaz.Strategy;
+  Apollo.Broker, Topaz.EventTypes, Topaz.Strategy, BotWizard;
 
 type
   TEngineState = (esIdle, esStarting, esConnected, esStopping, esError);
@@ -180,6 +180,8 @@ type
     procedure InitGridHeaders(AGrid: TStringGrid;
       const ACols: array of string; const AWidths: array of Integer);
     procedure PopulateStrategyCombo;
+    procedure SaveBots;
+    procedure LoadBots;
   end;
 
 var
@@ -228,6 +230,7 @@ begin
     [110, 150, 70, 60, 50, 50, 150]);
 
   PopulateStrategyCombo;
+  LoadBots;
   LoadSettings;
   SetEngineState(esIdle);
   ShowPage(PAGE_DASHBOARD);
@@ -238,6 +241,7 @@ procedure TfrmDashboard.FormDestroy(Sender: TObject);
 begin
   tmrDrain.Enabled := False;
   tmrPoll.Enabled := False;
+  SaveBots;
   StopEngine;
   SaveSettings;
   FSymbolRowMap.Free;
@@ -698,47 +702,62 @@ end;
 procedure TfrmDashboard.btnStratStartClick(Sender: TObject);
 var
   Regs: TArray<TStrategyRegistration>;
+  Wiz: TfrmBotWizard;
   Bot: TRunningBot;
-  Idx, SlotIdx, Row: Integer;
+  Idx, SlotIdx, Row, I: Integer;
+  StratName: AnsiString;
 begin
   if FBroker = nil then begin Log('Engine not running'); Exit; end;
-  if cbxStratName.ItemIndex < 0 then Exit;
 
-  Regs := GetRegisteredStrategies;
-  Idx := cbxStratName.ItemIndex;
-  if Idx > High(Regs) then Exit;
+  Wiz := TfrmBotWizard.Create(Self);
+  try
+    if Wiz.ShowModal <> mrOK then Exit;
 
-  SlotIdx := FEventBus.AddStrategySlot;
-  if SlotIdx < 0 then begin Log('Max strategy slots reached'); Exit; end;
+    StratName := Wiz.GetStrategyName;
+    Regs := GetRegisteredStrategies;
+    Idx := -1;
+    for I := 0 to High(Regs) do
+      if Regs[I].Name = StratName then begin Idx := I; Break; end;
+    if Idx < 0 then begin Log('Strategy not found: ' + StratName); Exit; end;
 
-  Bot.Name := AnsiString(Format('bot-%d', [FBots.Count + 1]));
-  Bot.StrategyName := Regs[Idx].Name;
-  Bot.Underlying := AnsiString(edtStratUnderlying.Text);
-  Bot.Strategy := Regs[Idx].StrategyClass.Create;
-  Bot.Strategy.Name := Bot.Name;
-  Bot.Strategy.Underlying := Bot.Underlying;
-  Bot.Strategy.Lots := edtStratLots.Value;
-  Bot.Strategy.Broker := FBroker;
-  Bot.SlotIndex := SlotIdx;
+    SlotIdx := FEventBus.AddStrategySlot;
+    if SlotIdx < 0 then begin Log('Max strategy slots reached'); Exit; end;
 
-  FBroker.Subscribe(Bot.Underlying, exNSE, smQuote);
+    Bot.Name := AnsiString(Format('bot-%d', [FBots.Count + 1]));
+    Bot.StrategyName := StratName;
+    Bot.Underlying := Wiz.GetUnderlying;
+    Bot.Strategy := Regs[Idx].StrategyClass.Create;
+    Bot.Strategy.Name := Bot.Name;
+    Bot.Strategy.Underlying := Bot.Underlying;
+    Bot.Strategy.Lots := Wiz.GetLots;
+    Bot.Strategy.WarmupTicks := Wiz.GetWarmupTicks;
+    Bot.Strategy.Broker := FBroker;
+    Bot.SlotIndex := SlotIdx;
 
-  Bot.Thread := TStrategyThread.Create(Bot.Strategy,
-    FEventBus.StrategySlots[SlotIdx].Ticks);
-  Bot.Running := True;
-  Bot.Thread.Start;
-  FBots.Add(Bot);
+    for I := 0 to Wiz.GetParamCount - 1 do
+      Bot.Strategy.ApplyParam(Wiz.GetParamName(I), Wiz.GetParamValue(I));
 
-  Row := gridStrategies.RowCount;
-  gridStrategies.RowCount := Row + 1;
-  gridStrategies.Cells[0, Row] := string(Bot.Name);
-  gridStrategies.Cells[1, Row] := string(Bot.StrategyName);
-  gridStrategies.Cells[2, Row] := string(Bot.Underlying);
-  gridStrategies.Cells[3, Row] := IntToStr(Bot.Strategy.Lots);
-  gridStrategies.Cells[4, Row] := 'Running';
+    FBroker.Subscribe(Bot.Underlying, exNSE, smQuote);
 
-  Log(Format('Started: %s (%s on %s)', [string(Bot.Name),
-    string(Bot.StrategyName), string(Bot.Underlying)]));
+    Bot.Thread := TStrategyThread.Create(Bot.Strategy,
+      FEventBus.StrategySlots[SlotIdx].Ticks);
+    Bot.Running := True;
+    Bot.Thread.Start;
+    FBots.Add(Bot);
+
+    Row := gridStrategies.RowCount;
+    gridStrategies.RowCount := Row + 1;
+    gridStrategies.Cells[0, Row] := string(Bot.Name);
+    gridStrategies.Cells[1, Row] := string(Bot.StrategyName);
+    gridStrategies.Cells[2, Row] := string(Bot.Underlying);
+    gridStrategies.Cells[3, Row] := IntToStr(Bot.Strategy.Lots);
+    gridStrategies.Cells[4, Row] := 'Running';
+
+    Log(Format('Started: %s (%s on %s)', [string(Bot.Name),
+      string(Bot.StrategyName), string(Bot.Underlying)]));
+  finally
+    Wiz.Free;
+  end;
 end;
 
 procedure TfrmDashboard.btnStratStopClick(Sender: TObject);
@@ -809,6 +828,11 @@ begin
     cbxStratName.ItemIndex := 0;
 end;
 
+function BotsPath: string;
+begin
+  Result := ExtractFilePath(ParamStr(0)) + 'config' + PathDelim + 'bots.json';
+end;
+
 function SettingsPath: string;
 begin
   Result := ExtractFilePath(ParamStr(0)) + 'config' + PathDelim + 'settings.ini';
@@ -859,6 +883,154 @@ begin
     CloseFile(F);
   except
     on E: Exception do Log('Save failed: ' + AnsiString(E.Message));
+  end;
+end;
+
+{ ═══════════════════════════════════════════════════════════════════ }
+{  Bot persistence                                                    }
+{ ═══════════════════════════════════════════════════════════════════ }
+
+procedure TfrmDashboard.SaveBots;
+var
+  JArr: TJSONArray;
+  JBot, JParams: TJSONObject;
+  I, J: Integer;
+  Bot: TRunningBot;
+  Params: TArray<TStrategyParam>;
+  S: TJSONStringType;
+  F: TextFile;
+begin
+  JArr := TJSONArray.Create;
+  try
+    for I := 0 to FBots.Count - 1 do
+    begin
+      Bot := FBots[I];
+      JBot := TJSONObject.Create;
+      JBot.Add('strategy', string(Bot.StrategyName));
+      JBot.Add('underlying', string(Bot.Underlying));
+      if Bot.Strategy <> nil then
+        JBot.Add('lots', Bot.Strategy.Lots)
+      else
+        JBot.Add('lots', 1);
+
+      if Bot.Strategy <> nil then
+        JBot.Add('warmup', Bot.Strategy.WarmupTicks)
+      else
+        JBot.Add('warmup', 50);
+
+      JParams := TJSONObject.Create;
+      { Get param values from the live strategy if available }
+      if Bot.Strategy <> nil then
+      begin
+        Params := Bot.Strategy.DeclareParams;
+        if Params <> nil then
+          for J := 0 to High(Params) do
+            JParams.Add(string(Params[J].Name),
+              string(Bot.Strategy.GetParamValue(Params[J].Name)));
+      end;
+      JBot.Add('params', JParams);
+      JArr.Add(JBot);
+    end;
+
+    S := JArr.FormatJSON;
+    ForceDirectories(ExtractFilePath(BotsPath));
+    AssignFile(F, BotsPath);
+    try
+      Rewrite(F);
+      Write(F, S);
+      CloseFile(F);
+    except
+      on E: Exception do Log('SaveBots failed: ' + AnsiString(E.Message));
+    end;
+  finally
+    JArr.Free;
+  end;
+end;
+
+procedure TfrmDashboard.LoadBots;
+var
+  F: TextFile;
+  S, Line: string;
+  JData: TJSONData;
+  JArr: TJSONArray;
+  JBot, JParams: TJSONObject;
+  I, J, RegIdx, Row: Integer;
+  Regs: TArray<TStrategyRegistration>;
+  Bot: TRunningBot;
+  StratName: AnsiString;
+begin
+  if not FileExists(BotsPath) then Exit;
+
+  S := '';
+  AssignFile(F, BotsPath);
+  try
+    Reset(F);
+    while not Eof(F) do
+    begin
+      ReadLn(F, Line);
+      S := S + Line;
+    end;
+    CloseFile(F);
+  except
+    Exit;
+  end;
+
+  if S = '' then Exit;
+
+  try
+    JData := GetJSON(S);
+  except
+    Exit;
+  end;
+
+  try
+    if not (JData is TJSONArray) then Exit;
+    JArr := JData as TJSONArray;
+    Regs := GetRegisteredStrategies;
+
+    for I := 0 to JArr.Count - 1 do
+    begin
+      if not (JArr.Items[I] is TJSONObject) then Continue;
+      JBot := JArr.Objects[I];
+
+      StratName := AnsiString(JBot.Get('strategy', ''));
+      RegIdx := -1;
+      for J := 0 to High(Regs) do
+        if Regs[J].Name = StratName then begin RegIdx := J; Break; end;
+      if RegIdx < 0 then Continue;
+
+      Bot.Name := AnsiString(Format('bot-%d', [FBots.Count + 1]));
+      Bot.StrategyName := StratName;
+      Bot.Underlying := AnsiString(JBot.Get('underlying', ''));
+      Bot.Strategy := Regs[RegIdx].StrategyClass.Create;
+      Bot.Strategy.Name := Bot.Name;
+      Bot.Strategy.Underlying := Bot.Underlying;
+      Bot.Strategy.Lots := JBot.Get('lots', 1);
+      Bot.Strategy.WarmupTicks := JBot.Get('warmup', 50);
+      Bot.Thread := nil;
+      Bot.SlotIndex := -1;
+      Bot.Running := False;
+
+      { Apply params }
+      JParams := JBot.Get('params', TJSONObject(nil));
+      if JParams <> nil then
+        for J := 0 to JParams.Count - 1 do
+          Bot.Strategy.ApplyParam(
+            AnsiString(JParams.Names[J]),
+            AnsiString(JParams.Items[J].AsString));
+
+      FBots.Add(Bot);
+
+      Row := gridStrategies.RowCount;
+      gridStrategies.RowCount := Row + 1;
+      gridStrategies.Cells[0, Row] := string(Bot.Name);
+      gridStrategies.Cells[1, Row] := string(Bot.StrategyName);
+      gridStrategies.Cells[2, Row] := string(Bot.Underlying);
+      gridStrategies.Cells[3, Row] := IntToStr(Bot.Strategy.Lots);
+      gridStrategies.Cells[4, Row] := 'Stopped';
+    end;
+  finally
+    JData.Free;
   end;
 end;
 

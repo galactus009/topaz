@@ -86,8 +86,15 @@ type
     FPeakPrice: Double;       // for trailing stop
     FTrailingATR: Double;     // ATR at entry for trailing calculation
 
-    FWarmupCount: Integer;
-    FWarmupNeeded: Integer;
+    { Auto-recalibration }
+    FRecalibEnabled: Boolean;
+    FRecalibInterval: Integer; // recalibrate every N trades
+    FTradesSinceRecalib: Integer;
+    FFactorHits: array[0..NUM_FACTORS - 1] of Integer;  // correct predictions
+    FFactorTotal: array[0..NUM_FACTORS - 1] of Integer;  // total predictions
+    FEntryScores: array[0..NUM_FACTORS - 1] of Double;   // scores at last entry
+    procedure RecordTradeResult(AWin: Boolean);
+    procedure Recalibrate;
 
     { Factor scoring }
     function ScoreROC: Double;
@@ -109,6 +116,9 @@ type
     procedure OnStop; override;
   public
     constructor Create;
+    function DeclareParams: TArray<TStrategyParam>; override;
+    procedure ApplyParam(const AName, AValue: AnsiString); override;
+    function GetParamValue(const AName: AnsiString): AnsiString; override;
     property EntryThreshold: Double read FEntryThreshold write FEntryThreshold;
     property StopATRMult: Double read FStopATRMult write FStopATRMult;
     property TargetATRMult: Double read FTargetATRMult write FTargetATRMult;
@@ -120,6 +130,14 @@ implementation
 
 const
   CANDLE_DURATION_SEC = 60;
+
+function MkParam(const AName, ADisplay: AnsiString; AKind: TParamKind; const AValue: AnsiString): TStrategyParam;
+begin
+  Result.Name := AName;
+  Result.Display := ADisplay;
+  Result.Kind := AKind;
+  Result.Value := AValue;
+end;
 
 { ── Constructor ── }
 
@@ -152,10 +170,34 @@ begin
     Result := 0;
 end;
 
+function TCompositeScalper.DeclareParams: TArray<TStrategyParam>;
+begin
+  SetLength(Result, 3);
+  Result[0] := MkParam('entry_threshold', 'Entry Threshold', pkFloat, FloatToStr(FEntryThreshold));
+  Result[1] := MkParam('stop_atr_mult', 'Stop ATR Mult', pkFloat, FloatToStr(FStopATRMult));
+  Result[2] := MkParam('target_atr_mult', 'Target ATR Mult', pkFloat, FloatToStr(FTargetATRMult));
+end;
+
+procedure TCompositeScalper.ApplyParam(const AName, AValue: AnsiString);
+begin
+  if AName = 'entry_threshold' then FEntryThreshold := StrToFloatDef(string(AValue), FEntryThreshold)
+  else if AName = 'stop_atr_mult' then FStopATRMult := StrToFloatDef(string(AValue), FStopATRMult)
+  else if AName = 'target_atr_mult' then FTargetATRMult := StrToFloatDef(string(AValue), FTargetATRMult);
+end;
+
+function TCompositeScalper.GetParamValue(const AName: AnsiString): AnsiString;
+begin
+  if AName = 'entry_threshold' then Result := FloatToStr(FEntryThreshold)
+  else if AName = 'stop_atr_mult' then Result := FloatToStr(FStopATRMult)
+  else if AName = 'target_atr_mult' then Result := FloatToStr(FTargetATRMult)
+  else Result := '';
+end;
+
 { ── Lifecycle ── }
 
 procedure TCompositeScalper.OnStart;
 begin
+  inherited;
   FROC.Init(12);
   FEMAFast.Init(9);
   FEMASlow.Init(21);
@@ -182,9 +224,13 @@ begin
   FTargetPrice := 0;
   FPeakPrice := 0;
 
-  { Need enough ticks to warm up the slowest indicator (MACD slow=26 + signal=9) }
-  FWarmupNeeded := 40;
-  FWarmupCount := 0;
+  // Recalibration
+  FRecalibEnabled := True;
+  FRecalibInterval := 10;  // recalibrate every 10 trades
+  FTradesSinceRecalib := 0;
+  FillChar(FFactorHits, SizeOf(FFactorHits), 0);
+  FillChar(FFactorTotal, SizeOf(FFactorTotal), 0);
+  FillChar(FEntryScores, SizeOf(FEntryScores), 0);
 end;
 
 procedure TCompositeScalper.OnStop;
@@ -250,9 +296,7 @@ begin
   { VWAP update }
   FVWAP.Update(ATick.LTP, ATick.Volume);
 
-  { Warmup }
-  Inc(FWarmupCount);
-  if FWarmupCount < FWarmupNeeded then Exit;
+  if not WarmedUp then Exit;
 
   { Position management takes priority }
   if FInPosition then
@@ -395,6 +439,16 @@ begin
   Qty := Lots;
   if Qty <= 0 then Qty := 1;
 
+  { Snapshot per-factor scores for recalibration }
+  FEntryScores[FACTOR_ROC] := ScoreROC;
+  FEntryScores[FACTOR_EMA_CROSS] := ScoreEMACross;
+  FEntryScores[FACTOR_VWAP_DEV] := ScoreVWAPDev(Price);
+  FEntryScores[FACTOR_RSI] := ScoreRSI;
+  FEntryScores[FACTOR_MACD_HIST] := ScoreMACDHist;
+  FEntryScores[FACTOR_BOLL_B] := ScoreBollingerB(Price);
+  FEntryScores[FACTOR_VOL_RATIO] := ScoreVolumeRatio(TickVol);
+  FEntryScores[FACTOR_ATR_TREND] := ScoreATRTrend;
+
   { Bullish entry }
   if Score > FEntryThreshold then
   begin
@@ -509,8 +563,78 @@ begin
   else
     Buy(Underlying, Qty, 0, Exchange);
 
+  // Track trade result for recalibration
+  if FRecalibEnabled and (FEntryPrice > 0) then
+  begin
+    if FPositionSide = 1 then
+      RecordTradeResult(Price > FEntryPrice)
+    else
+      RecordTradeResult(Price < FEntryPrice);
+  end;
+
   FInPosition := False;
   FPositionSide := 0;
+end;
+
+{ ── Auto-Recalibration ── }
+
+procedure TCompositeScalper.RecordTradeResult(AWin: Boolean);
+var
+  I: Integer;
+begin
+  for I := 0 to NUM_FACTORS - 1 do
+  begin
+    Inc(FFactorTotal[I]);
+    // A factor "hit" if its score agreed with the winning direction
+    // Score > 50 = bullish signal, score < 50 = bearish signal
+    if AWin then
+    begin
+      if ((FPositionSide = 1) and (FEntryScores[I] > 50)) or
+         ((FPositionSide = -1) and (FEntryScores[I] < 50)) then
+        Inc(FFactorHits[I]);
+    end
+    else
+    begin
+      // Loss: factor was wrong if it agreed with the entry direction
+      if ((FPositionSide = 1) and (FEntryScores[I] <= 50)) or
+         ((FPositionSide = -1) and (FEntryScores[I] >= 50)) then
+        Inc(FFactorHits[I]);
+    end;
+  end;
+
+  Inc(FTradesSinceRecalib);
+  if FTradesSinceRecalib >= FRecalibInterval then
+    Recalibrate;
+end;
+
+procedure TCompositeScalper.Recalibrate;
+var
+  I: Integer;
+  Accuracy, TotalAcc: Double;
+begin
+  TotalAcc := 0;
+  for I := 0 to NUM_FACTORS - 1 do
+  begin
+    if FFactorTotal[I] > 0 then
+      Accuracy := FFactorHits[I] / FFactorTotal[I]
+    else
+      Accuracy := 0.5;
+    // Clamp accuracy to [0.1, 0.9] to prevent zeroing out
+    if Accuracy < 0.1 then Accuracy := 0.1;
+    if Accuracy > 0.9 then Accuracy := 0.9;
+    FWeights[I] := Accuracy;
+    TotalAcc := TotalAcc + Accuracy;
+  end;
+
+  // Normalize weights to sum to 1.0
+  if TotalAcc > 0 then
+    for I := 0 to NUM_FACTORS - 1 do
+      FWeights[I] := FWeights[I] / TotalAcc;
+
+  // Reset counters for next calibration window
+  FTradesSinceRecalib := 0;
+  FillChar(FFactorHits, SizeOf(FFactorHits), 0);
+  FillChar(FFactorTotal, SizeOf(FFactorTotal), 0);
 end;
 
 initialization

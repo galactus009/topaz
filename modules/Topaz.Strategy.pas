@@ -23,6 +23,15 @@ type
   TStrategy = class;
   TStrategyClass = class of TStrategy;
 
+  TParamKind = (pkFloat, pkInteger, pkString, pkBoolean);
+
+  TStrategyParam = record
+    Name: AnsiString;
+    Display: AnsiString;
+    Kind: TParamKind;
+    Value: AnsiString;
+  end;
+
   TStrategy = class
   private
     FName: AnsiString;
@@ -31,6 +40,8 @@ type
     FExchange: TExchange;
     FPnL: Double;
     FTickCount: Int64;
+    FWarmupTicks: Integer;    // ticks remaining in warmup
+    FWarmedUp: Boolean;       // true once warmup complete
   protected
     FBroker: TBroker;
     { Override these in your strategy }
@@ -50,6 +61,12 @@ type
     property Broker: TBroker read FBroker write FBroker;
     property PnL: Double read FPnL write FPnL;
     property TickCount: Int64 read FTickCount;
+    property WarmupTicks: Integer read FWarmupTicks write FWarmupTicks;
+    property WarmedUp: Boolean read FWarmedUp;
+    { Strategy parameter declaration — override in subclass }
+    function DeclareParams: TArray<TStrategyParam>; virtual;
+    procedure ApplyParam(const AName, AValue: AnsiString); virtual;
+    function GetParamValue(const AName: AnsiString): AnsiString; virtual;
   end;
 
   TStrategyThread = class(TThread)
@@ -116,12 +133,29 @@ end;
 
 procedure TStrategy.OnStart;
 begin
-  // override in subclass
+  FWarmedUp := False;
+  if FWarmupTicks <= 0 then
+    FWarmupTicks := 50;  // default warmup: 50 ticks
 end;
 
 procedure TStrategy.OnStop;
 begin
   // override in subclass
+end;
+
+function TStrategy.DeclareParams: TArray<TStrategyParam>;
+begin
+  Result := nil;
+end;
+
+procedure TStrategy.ApplyParam(const AName, AValue: AnsiString);
+begin
+  // override in subclass
+end;
+
+function TStrategy.GetParamValue(const AName: AnsiString): AnsiString;
+begin
+  Result := '';
 end;
 
 function TStrategy.Buy(const ASymbol: AnsiString; AQty: Integer;
@@ -168,6 +202,12 @@ begin
       if FTickRing^.TryRead(Tick) then
       begin
         Inc(FStrategy.FTickCount);
+        if not FStrategy.FWarmedUp then
+        begin
+          Dec(FStrategy.FWarmupTicks);
+          if FStrategy.FWarmupTicks <= 0 then
+            FStrategy.FWarmedUp := True;
+        end;
         FStrategy.OnTick(Tick);
       end
       else

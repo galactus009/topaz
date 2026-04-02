@@ -70,6 +70,9 @@ type
     procedure OnStop; override;
   public
     constructor Create;
+    function DeclareParams: TArray<TStrategyParam>; override;
+    procedure ApplyParam(const AName, AValue: AnsiString); override;
+    function GetParamValue(const AName: AnsiString): AnsiString; override;
     property TargetPct: Double read FTargetPct write FTargetPct;
     property StopPct: Double read FStopPct write FStopPct;
     property EntryAfter: Integer read FEntryAfter write FEntryAfter;
@@ -99,10 +102,45 @@ begin
   FPESymId := -1;
 end;
 
+function MkParam(const AName, ADisplay: AnsiString; AKind: TParamKind; const AValue: AnsiString): TStrategyParam;
+begin
+  Result.Name := AName;
+  Result.Display := ADisplay;
+  Result.Kind := AKind;
+  Result.Value := AValue;
+end;
+
+function TOptionScalper.DeclareParams: TArray<TStrategyParam>;
+begin
+  SetLength(Result, 4);
+  Result[0] := MkParam('target_pct', 'Target %', pkFloat, FloatToStr(FTargetPct));
+  Result[1] := MkParam('stop_pct', 'Stop %', pkFloat, FloatToStr(FStopPct));
+  Result[2] := MkParam('entry_after', 'Entry After (min)', pkInteger, IntToStr(FEntryAfter));
+  Result[3] := MkParam('exit_before', 'Exit Before (min)', pkInteger, IntToStr(FExitBefore));
+end;
+
+procedure TOptionScalper.ApplyParam(const AName, AValue: AnsiString);
+begin
+  if AName = 'target_pct' then FTargetPct := StrToFloatDef(string(AValue), FTargetPct)
+  else if AName = 'stop_pct' then FStopPct := StrToFloatDef(string(AValue), FStopPct)
+  else if AName = 'entry_after' then FEntryAfter := StrToIntDef(string(AValue), FEntryAfter)
+  else if AName = 'exit_before' then FExitBefore := StrToIntDef(string(AValue), FExitBefore);
+end;
+
+function TOptionScalper.GetParamValue(const AName: AnsiString): AnsiString;
+begin
+  if AName = 'target_pct' then Result := FloatToStr(FTargetPct)
+  else if AName = 'stop_pct' then Result := FloatToStr(FStopPct)
+  else if AName = 'entry_after' then Result := IntToStr(FEntryAfter)
+  else if AName = 'exit_before' then Result := IntToStr(FExitBefore)
+  else Result := '';
+end;
+
 procedure TOptionScalper.OnStart;
 var
   Spot: Double;
 begin
+  inherited;
   if Broker = nil then Exit;
   if Underlying = '' then Underlying := 'NIFTY 50';
 
@@ -140,6 +178,8 @@ begin
     FPELTP := ATick.LTP
   else
     FSpotLTP := ATick.LTP;
+
+  if not WarmedUp then Exit;
 
   case FState of
     ssWaiting:

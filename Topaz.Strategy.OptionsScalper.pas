@@ -67,6 +67,9 @@ type
     procedure OnStop; override;
   public
     constructor Create;
+    function DeclareParams: TArray<TStrategyParam>; override;
+    procedure ApplyParam(const AName, AValue: AnsiString); override;
+    function GetParamValue(const AName: AnsiString): AnsiString; override;
     property ScalpTargetPoints: Double read FScalpTargetPoints write FScalpTargetPoints;
     property ScalpStopPoints: Double read FScalpStopPoints write FScalpStopPoints;
     property MaxTrades: Integer read FMaxTrades write FMaxTrades;
@@ -87,6 +90,14 @@ const
   EXIT_HOUR        = 15;
   EXIT_MIN         = 20;
   STRIKE_STEP      = 50.0;  // NIFTY strike interval
+
+function MkParam(const AName, ADisplay: AnsiString; AKind: TParamKind; const AValue: AnsiString): TStrategyParam;
+begin
+  Result.Name := AName;
+  Result.Display := ADisplay;
+  Result.Kind := AKind;
+  Result.Value := AValue;
+end;
 
 { ── Constructor ── }
 
@@ -110,6 +121,35 @@ begin
   FTicksSinceTrade := 0;
   FSpotSymId := -1;
   FOptionSymId := -1;
+end;
+
+function TOptionsScalper.DeclareParams: TArray<TStrategyParam>;
+begin
+  SetLength(Result, 5);
+  Result[0] := MkParam('scalp_target_points', 'Scalp Target Points', pkFloat, FloatToStr(FScalpTargetPoints));
+  Result[1] := MkParam('scalp_stop_points', 'Scalp Stop Points', pkFloat, FloatToStr(FScalpStopPoints));
+  Result[2] := MkParam('max_trades', 'Max Trades', pkInteger, IntToStr(FMaxTrades));
+  Result[3] := MkParam('cooldown_ticks', 'Cooldown Ticks', pkInteger, IntToStr(FCooldownTicks));
+  Result[4] := MkParam('target_delta', 'Target Delta', pkFloat, FloatToStr(FTargetDelta));
+end;
+
+procedure TOptionsScalper.ApplyParam(const AName, AValue: AnsiString);
+begin
+  if AName = 'scalp_target_points' then FScalpTargetPoints := StrToFloatDef(string(AValue), FScalpTargetPoints)
+  else if AName = 'scalp_stop_points' then FScalpStopPoints := StrToFloatDef(string(AValue), FScalpStopPoints)
+  else if AName = 'max_trades' then FMaxTrades := StrToIntDef(string(AValue), FMaxTrades)
+  else if AName = 'cooldown_ticks' then FCooldownTicks := StrToIntDef(string(AValue), FCooldownTicks)
+  else if AName = 'target_delta' then FTargetDelta := StrToFloatDef(string(AValue), FTargetDelta);
+end;
+
+function TOptionsScalper.GetParamValue(const AName: AnsiString): AnsiString;
+begin
+  if AName = 'scalp_target_points' then Result := FloatToStr(FScalpTargetPoints)
+  else if AName = 'scalp_stop_points' then Result := FloatToStr(FScalpStopPoints)
+  else if AName = 'max_trades' then Result := IntToStr(FMaxTrades)
+  else if AName = 'cooldown_ticks' then Result := IntToStr(FCooldownTicks)
+  else if AName = 'target_delta' then Result := FloatToStr(FTargetDelta)
+  else Result := '';
 end;
 
 { ── Find OTM strike near target delta ── }
@@ -251,6 +291,7 @@ end;
 
 procedure TOptionsScalper.OnStart;
 begin
+  inherited;
   if Broker = nil then Exit;
   if Underlying = '' then Underlying := 'NIFTY 50';
 
@@ -299,6 +340,8 @@ begin
   // Spot tick: update spot and RSI
   FSpotLTP := ATick.LTP;
   FRSI.Update(ATick.LTP);
+
+  if not WarmedUp then Exit;
 
   Inc(FTicksSinceTrade);
 
