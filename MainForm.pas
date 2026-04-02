@@ -17,7 +17,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs,
-  StdCtrls, ExtCtrls, Grids, Spin, ComCtrls, Generics.Collections,
+  StdCtrls, ExtCtrls, Grids, Spin, ComCtrls, Menus, Generics.Collections,
   Apollo.Broker, Topaz.EventTypes, Topaz.Strategy, Topaz.Risk,
   Topaz.State, Topaz.Reconciler, Topaz.Session, BotWizard;
 
@@ -123,6 +123,7 @@ type
     gridSearch: TStringGrid;
 
     { ── Page: Settings ── }
+    scrollSettings: TScrollBox;
     grpBroker: TGroupBox;
     cbxBroker: TComboBox;
     edtToken: TEdit;
@@ -173,6 +174,7 @@ type
     memoLog: TMemo;
     pnlLogToolbar: TPanel;
     btnClearLog: TButton;
+    lblLogCount: TLabel;
     pnlLogFilter: TPanel;
     chkLogInfo: TCheckBox;
     chkLogWarn: TCheckBox;
@@ -200,6 +202,14 @@ type
     tmrDrain: TTimer;
     tmrPoll: TTimer;
 
+    { ── Context menus ── }
+    pmWatchlist: TPopupMenu;
+    miWatchUnsubscribe: TMenuItem;
+    miWatchPlaceOrder: TMenuItem;
+    pmStrategies: TPopupMenu;
+    miStratStop: TMenuItem;
+    miStratRemove: TMenuItem;
+
     { ── Event handlers ── }
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
@@ -225,6 +235,10 @@ type
     procedure btnStratStartClick(Sender: TObject);
     procedure btnStratStopClick(Sender: TObject);
     procedure gridWatchlistDblClick(Sender: TObject);
+    procedure miWatchUnsubscribeClick(Sender: TObject);
+    procedure miWatchPlaceOrderClick(Sender: TObject);
+    procedure miStratStopClick(Sender: TObject);
+    procedure miStratRemoveClick(Sender: TObject);
     procedure tmrDrainTimer(Sender: TObject);
     procedure tmrPollTimer(Sender: TObject);
   private
@@ -1101,6 +1115,7 @@ end;
 procedure TfrmDashboard.btnClearLogClick(Sender: TObject);
 begin
   memoLog.Lines.Clear;
+  lblLogCount.Caption := 'Lines: 0/1000';
 end;
 
 procedure TfrmDashboard.btnFlattenAllClick(Sender: TObject);
@@ -1148,6 +1163,50 @@ begin
   edtOrdSymbol.Text := Sym;
   ShowPage(PAGE_ORDERS);
   HighlightNav(btnNavOrders);
+end;
+
+procedure TfrmDashboard.miWatchUnsubscribeClick(Sender: TObject);
+begin
+  btnRemoveSymbolClick(Sender);
+end;
+
+procedure TfrmDashboard.miWatchPlaceOrderClick(Sender: TObject);
+begin
+  gridWatchlistDblClick(Sender);
+end;
+
+procedure TfrmDashboard.miStratStopClick(Sender: TObject);
+begin
+  btnStratStopClick(Sender);
+end;
+
+procedure TfrmDashboard.miStratRemoveClick(Sender: TObject);
+var
+  Row, Idx: Integer;
+  Bot: TRunningBot;
+begin
+  Row := gridStrategies.Row;
+  if Row < 1 then Exit;
+  Idx := Row - 1;
+  if Idx >= FBots.Count then Exit;
+  Bot := FBots[Idx];
+
+  if Bot.Running then
+  begin
+    Bot.Thread.Terminate;
+    Bot.Thread.WaitFor;
+    FreeAndNil(Bot.Thread);
+    FreeAndNil(Bot.Strategy);
+    if FEventBus <> nil then
+      FEventBus.RemoveStrategySlot(Bot.SlotIndex);
+    Bot.Running := False;
+  end
+  else
+    FreeAndNil(Bot.Strategy);
+
+  FBots.Delete(Idx);
+  gridStrategies.DeleteRow(Row);
+  Log('Removed bot: ' + Bot.Name);
 end;
 
 procedure TfrmDashboard.btnStratStartClick(Sender: TObject);
@@ -1245,6 +1304,7 @@ procedure TfrmDashboard.Log(const AMsg: AnsiString);
 begin
   memoLog.Lines.Add(FormatDateTime('hh:nn:ss', Now) + ' ' + string(AMsg));
   while memoLog.Lines.Count > 1000 do memoLog.Lines.Delete(0);
+  lblLogCount.Caption := Format('Lines: %d/1000', [memoLog.Lines.Count]);
 end;
 
 function TfrmDashboard.ExchangeFromIndex(AIndex: Integer): TExchange;
