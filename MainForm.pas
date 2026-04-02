@@ -486,6 +486,8 @@ var
   Tick: TTickEvent;
   Order: TOrderEvent;
   Status: TStatusEvent;
+  LogEvt: TLogEvent;
+  Prefix: string;
   N: Integer;
 begin
   if FEventBus = nil then Exit;
@@ -507,6 +509,22 @@ begin
 
   while FEventBus.Status.TryRead(Status) do
     ProcessStatusEvent(Status);
+
+  // Drain structured log events from strategies
+  while FEventBus.Logs.TryRead(LogEvt) do
+  begin
+    case LogEvt.Level of
+      llInfo:   Prefix := 'INFO';
+      llWarn:   Prefix := 'WARN';
+      llError:  Prefix := 'ERROR';
+      llRisk:   Prefix := 'RISK';
+      llOrder:  Prefix := 'ORDER';
+      llFill:   Prefix := 'FILL';
+      llSystem: Prefix := 'SYS';
+    end;
+    Log(AnsiString(Format('[%s] %s: %s',
+      [Prefix, PAnsiChar(@LogEvt.Source[0]), PAnsiChar(@LogEvt.Msg[0])])));
+  end;
 
   if FBroker <> nil then
     lblTickCount.Caption := Format('Ticks: %d', [FBroker.TickCount]);
@@ -772,6 +790,8 @@ begin
     Bot.Strategy.Lots := Wiz.GetLots;
     Bot.Strategy.WarmupTicks := Wiz.GetWarmupTicks;
     Bot.Strategy.Broker := FBroker;
+    Bot.Strategy.Risk := FRisk;
+    Bot.Strategy.EventBus := FEventBus;
     Bot.SlotIndex := SlotIdx;
 
     for I := 0 to Wiz.GetParamCount - 1 do

@@ -17,7 +17,8 @@ unit Topaz.Strategy;
 interface
 
 uses
-  Classes, SysUtils, Apollo.Broker, Topaz.RingBuffer, Topaz.EventTypes;
+  Classes, SysUtils, Apollo.Broker, Topaz.RingBuffer, Topaz.EventTypes,
+  Topaz.Risk;
 
 type
   TStrategy = class;
@@ -44,21 +45,27 @@ type
     FWarmedUp: Boolean;       // true once warmup complete
   protected
     FBroker: TBroker;
+    FRisk: TRiskManager;
+    FEventBus: TEventBus;
     { Override these in your strategy }
     procedure OnTick(const ATick: TTickEvent); virtual; abstract;
     procedure OnStart; virtual;
     procedure OnStop; virtual;
-    { Order helpers — safe to call from strategy thread }
+    { Order helpers — check risk before placing, log rejections }
     function Buy(const ASymbol: AnsiString; AQty: Integer;
       APrice: Double = 0; AExchange: TExchange = exNSE): AnsiString;
     function Sell(const ASymbol: AnsiString; AQty: Integer;
       APrice: Double = 0; AExchange: TExchange = exNSE): AnsiString;
+    { Structured logging — emits to GUI event log via ring buffer }
+    procedure EmitLog(ALevel: TLogLevel; const AMsg: AnsiString);
   public
     property Name: AnsiString read FName write FName;
     property Underlying: AnsiString read FUnderlying write FUnderlying;
     property Lots: Integer read FLots write FLots;
     property Exchange: TExchange read FExchange write FExchange;
     property Broker: TBroker read FBroker write FBroker;
+    property Risk: TRiskManager read FRisk write FRisk;
+    property EventBus: TEventBus read FEventBus write FEventBus;
     property PnL: Double read FPnL write FPnL;
     property TickCount: Int64 read FTickCount;
     property WarmupTicks: Integer read FWarmupTicks write FWarmupTicks;
@@ -158,26 +165,78 @@ begin
   Result := '';
 end;
 
+procedure TStrategy.EmitLog(ALevel: TLogLevel; const AMsg: AnsiString);
+var
+  Evt: TLogEvent;
+  L: Integer;
+begin
+  if FEventBus = nil then Exit;
+  Evt.Level := ALevel;
+  StrLCopy(Evt.Source, PAnsiChar(FName), SizeOf(Evt.Source) - 1);
+  L := Length(AMsg);
+  if L > SizeOf(Evt.Msg) - 1 then L := SizeOf(Evt.Msg) - 1;
+  Move(AMsg[1], Evt.Msg[0], L);
+  Evt.Msg[L] := #0;
+  Evt.Len := L;
+  FEventBus.Logs.TryWrite(Evt);
+end;
+
 function TStrategy.Buy(const ASymbol: AnsiString; AQty: Integer;
   APrice: Double; AExchange: TExchange): AnsiString;
+var
+  Price: Double;
 begin
+  if APrice > 0 then Price := APrice else Price := 0;
+
+  // Risk check
+  if (FRisk <> nil) and (not FRisk.CheckOrder(FName, ASymbol, AQty, Price)) then
+  begin
+    EmitLog(llRisk, 'BUY REJECTED: ' + ASymbol + ' — ' + FRisk.LastViolation);
+    Result := '';
+    Exit;
+  end;
+
   if APrice > 0 then
     Result := FBroker.PlaceOrder(ASymbol, AExchange, sdBuy, okLimit,
       ptIntraday, vDay, AQty, APrice, 0, FName)
   else
     Result := FBroker.PlaceOrder(ASymbol, AExchange, sdBuy, okMarket,
       ptIntraday, vDay, AQty, 0, 0, FName);
+
+  if Result <> '' then
+  begin
+    EmitLog(llOrder, 'BUY ' + ASymbol + ' x' + IntToStr(AQty) + ' → ' + Result);
+    if FRisk <> nil then FRisk.OrderOpened;
+  end;
 end;
 
 function TStrategy.Sell(const ASymbol: AnsiString; AQty: Integer;
   APrice: Double; AExchange: TExchange): AnsiString;
+var
+  Price: Double;
 begin
+  if APrice > 0 then Price := APrice else Price := 0;
+
+  // Risk check
+  if (FRisk <> nil) and (not FRisk.CheckOrder(FName, ASymbol, AQty, Price)) then
+  begin
+    EmitLog(llRisk, 'SELL REJECTED: ' + ASymbol + ' — ' + FRisk.LastViolation);
+    Result := '';
+    Exit;
+  end;
+
   if APrice > 0 then
     Result := FBroker.PlaceOrder(ASymbol, AExchange, sdSell, okLimit,
       ptIntraday, vDay, AQty, APrice, 0, FName)
   else
     Result := FBroker.PlaceOrder(ASymbol, AExchange, sdSell, okMarket,
       ptIntraday, vDay, AQty, 0, 0, FName);
+
+  if Result <> '' then
+  begin
+    EmitLog(llOrder, 'SELL ' + ASymbol + ' x' + IntToStr(AQty) + ' → ' + Result);
+    if FRisk <> nil then FRisk.OrderOpened;
+  end;
 end;
 
 { TStrategyThread }

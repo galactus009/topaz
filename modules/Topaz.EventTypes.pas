@@ -54,6 +54,16 @@ type
     Len: Integer;
   end;
 
+  { ── Structured log event (from strategy threads to GUI) ── }
+  TLogLevel = (llInfo, llWarn, llError, llRisk, llOrder, llFill, llSystem);
+
+  TLogEvent = record
+    Level: TLogLevel;
+    Source: array[0..63] of AnsiChar;   // strategy name or 'SYSTEM'
+    Msg: array[0..447] of AnsiChar;
+    Len: Integer;
+  end;
+
   { ── Strategy tick bus slot ── }
   TStrategySlot = record
     Active: Boolean;
@@ -67,6 +77,7 @@ type
     Orders: TRingBuffer<TOrderEvent>;
     Status: TRingBuffer<TStatusEvent>;
     Depths: TRingBuffer<TDepthEvent>;
+    Logs: TRingBuffer<TLogEvent>;
     StrategySlots: array[0..MAX_STRATEGY_SLOTS - 1] of TStrategySlot;
     StrategyCount: Integer;
     constructor Create;
@@ -105,6 +116,7 @@ begin
   Orders.Init(ORDER_RING_CAPACITY);
   Status.Init(STATUS_RING_CAPACITY);
   Depths.Init(ORDER_RING_CAPACITY);
+  Logs.Init(ORDER_RING_CAPACITY);
   StrategyCount := 0;
   for I := 0 to MAX_STRATEGY_SLOTS - 1 do
     StrategySlots[I].Active := False;
