@@ -19,7 +19,7 @@ uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs,
   StdCtrls, ExtCtrls, Grids, Spin, ComCtrls, Generics.Collections,
   Apollo.Broker, Topaz.EventTypes, Topaz.Strategy, Topaz.Risk,
-  Topaz.State, Topaz.Reconciler, BotWizard;
+  Topaz.State, Topaz.Reconciler, Topaz.Session, BotWizard;
 
 type
   TEngineState = (esIdle, esStarting, esConnected, esStopping, esError);
@@ -56,6 +56,9 @@ type
     lblStatus: TLabel;
     lblBrokerInfo: TLabel;
     lblTickCount: TLabel;
+    lblDailyPnLBar: TLabel;
+    lblMarketClock: TLabel;
+    btnFlattenAll: TButton;
 
     { ── Page container ── }
     nbPages: TPageControl;
@@ -152,11 +155,31 @@ type
     lblPollInterval: TLabel;
     lblStateSaveInterval: TLabel;
     lblDefaultWarmup: TLabel;
+    grpTradingHours: TGroupBox;
+    lblMarketOpen: TLabel;
+    edtMarketOpen: TEdit;
+    lblMarketClose: TLabel;
+    edtMarketClose: TEdit;
+    lblForceExit: TLabel;
+    edtForceExit: TEdit;
+    lblEntryStart: TLabel;
+    edtEntryStart: TEdit;
+    lblEntryEnd: TLabel;
+    edtEntryEnd: TEdit;
     btnLaunchWizard: TButton;
 
     { ── Page: Log ── }
     memoLog: TMemo;
+    pnlLogToolbar: TPanel;
     btnClearLog: TButton;
+    pnlLogFilter: TPanel;
+    chkLogInfo: TCheckBox;
+    chkLogWarn: TCheckBox;
+    chkLogError: TCheckBox;
+    chkLogRisk: TCheckBox;
+    chkLogOrder: TCheckBox;
+    chkLogFill: TCheckBox;
+    chkLogSystem: TCheckBox;
 
     { ── Page: Health ── }
     pnlHealthTop: TPanel;
@@ -197,6 +220,7 @@ type
     procedure btnSaveSettingsClick(Sender: TObject);
     procedure btnLaunchWizardClick(Sender: TObject);
     procedure btnClearLogClick(Sender: TObject);
+    procedure btnFlattenAllClick(Sender: TObject);
     procedure btnStratStartClick(Sender: TObject);
     procedure btnStratStopClick(Sender: TObject);
     procedure tmrDrainTimer(Sender: TObject);
@@ -240,7 +264,7 @@ implementation
 {$R *.lfm}
 
 uses
-  fpjson, jsonparser;
+  fpjson, jsonparser, StrUtils;
 
 const
   PAGE_DASHBOARD  = 0;
@@ -263,6 +287,7 @@ begin
   FRisk := TRiskManager.Create;
   FState := TStateManager.Create;
   FState.Load;
+  GSession.SetDefaults;
 
   // Init grid headers
   InitGridHeaders(gridWatchlist,
@@ -297,6 +322,12 @@ begin
   edtPollInterval.Text := '2000';
   edtStateSaveInterval.Text := '30';
   edtDefaultWarmup.Text := '50';
+
+  edtMarketOpen.Text := '09:15';
+  edtMarketClose.Text := '15:30';
+  edtForceExit.Text := '15:20';
+  edtEntryStart.Text := '09:20';
+  edtEntryEnd.Text := '14:30';
 
   PopulateStrategyCombo;
   LoadBots;
@@ -579,6 +610,17 @@ begin
   // Drain structured log events from strategies
   while FEventBus.Logs.TryRead(LogEvt) do
   begin
+    // Check log filter checkboxes
+    case LogEvt.Level of
+      llInfo:   if not chkLogInfo.Checked then Continue;
+      llWarn:   if not chkLogWarn.Checked then Continue;
+      llError:  if not chkLogError.Checked then Continue;
+      llRisk:   if not chkLogRisk.Checked then Continue;
+      llOrder:  if not chkLogOrder.Checked then Continue;
+      llFill:   if not chkLogFill.Checked then Continue;
+      llSystem: if not chkLogSystem.Checked then Continue;
+    end;
+
     case LogEvt.Level of
       llInfo:   Prefix := 'INFO';
       llWarn:   Prefix := 'WARN';
@@ -715,6 +757,15 @@ begin
   // Update daily P&L and auto-save state
   FRisk.UpdateDailyPnL(Used);  // approximate from margin used
   FState.CheckAutoSave;
+
+  // Update top bar P&L and market clock
+  if FRisk.DailyPnL >= 0 then
+    lblDailyPnLBar.Font.Color := clGreen
+  else
+    lblDailyPnLBar.Font.Color := clRed;
+  lblDailyPnLBar.Caption := Format('P&L: %s%.2f',
+    [IfThen(FRisk.DailyPnL >= 0, '+', ''), FRisk.DailyPnL]);
+  lblMarketClock.Caption := string(GSession.ClockDisplay);
 
   // Refresh health page
   RefreshHealth;
@@ -925,6 +976,32 @@ begin
   tmrDrain.Interval := StrToIntDef(edtDrainInterval.Text, tmrDrain.Interval);
   tmrPoll.Interval := StrToIntDef(edtPollInterval.Text, tmrPoll.Interval);
   FState.SaveInterval := StrToIntDef(edtStateSaveInterval.Text, FState.SaveInterval);
+  // Apply trading hours to GSession
+  if Pos(':', edtMarketOpen.Text) > 0 then
+  begin
+    GSession.MarketOpenHour := StrToIntDef(Copy(edtMarketOpen.Text, 1, Pos(':', edtMarketOpen.Text) - 1), 9);
+    GSession.MarketOpenMin := StrToIntDef(Copy(edtMarketOpen.Text, Pos(':', edtMarketOpen.Text) + 1, MaxInt), 15);
+  end;
+  if Pos(':', edtMarketClose.Text) > 0 then
+  begin
+    GSession.MarketCloseHour := StrToIntDef(Copy(edtMarketClose.Text, 1, Pos(':', edtMarketClose.Text) - 1), 15);
+    GSession.MarketCloseMin := StrToIntDef(Copy(edtMarketClose.Text, Pos(':', edtMarketClose.Text) + 1, MaxInt), 30);
+  end;
+  if Pos(':', edtForceExit.Text) > 0 then
+  begin
+    GSession.ForceExitHour := StrToIntDef(Copy(edtForceExit.Text, 1, Pos(':', edtForceExit.Text) - 1), 15);
+    GSession.ForceExitMin := StrToIntDef(Copy(edtForceExit.Text, Pos(':', edtForceExit.Text) + 1, MaxInt), 20);
+  end;
+  if Pos(':', edtEntryStart.Text) > 0 then
+  begin
+    GSession.EntryStartHour := StrToIntDef(Copy(edtEntryStart.Text, 1, Pos(':', edtEntryStart.Text) - 1), 9);
+    GSession.EntryStartMin := StrToIntDef(Copy(edtEntryStart.Text, Pos(':', edtEntryStart.Text) + 1, MaxInt), 20);
+  end;
+  if Pos(':', edtEntryEnd.Text) > 0 then
+  begin
+    GSession.EntryEndHour := StrToIntDef(Copy(edtEntryEnd.Text, 1, Pos(':', edtEntryEnd.Text) - 1), 14);
+    GSession.EntryEndMin := StrToIntDef(Copy(edtEntryEnd.Text, Pos(':', edtEntryEnd.Text) + 1, MaxInt), 30);
+  end;
   lblSettingsStatus.Caption := 'Saved';
   Log('Settings saved and applied');
 end;
@@ -944,6 +1021,16 @@ end;
 procedure TfrmDashboard.btnClearLogClick(Sender: TObject);
 begin
   memoLog.Lines.Clear;
+end;
+
+procedure TfrmDashboard.btnFlattenAllClick(Sender: TObject);
+begin
+  if MessageDlg('FLATTEN ALL positions and stop all bots?',
+    mtWarning, [mbYes, mbNo], 0) = mrYes then
+  begin
+    StopEngine;
+    Log('FLATTEN ALL triggered by user');
+  end;
 end;
 
 procedure TfrmDashboard.btnStratStartClick(Sender: TObject);
@@ -1119,7 +1206,12 @@ begin
         else if Key = 'drain_interval' then edtDrainInterval.Text := Val
         else if Key = 'poll_interval' then edtPollInterval.Text := Val
         else if Key = 'state_save_interval' then edtStateSaveInterval.Text := Val
-        else if Key = 'default_warmup' then edtDefaultWarmup.Text := Val;
+        else if Key = 'default_warmup' then edtDefaultWarmup.Text := Val
+        else if Key = 'market_open' then edtMarketOpen.Text := Val
+        else if Key = 'market_close' then edtMarketClose.Text := Val
+        else if Key = 'force_exit' then edtForceExit.Text := Val
+        else if Key = 'entry_start' then edtEntryStart.Text := Val
+        else if Key = 'entry_end' then edtEntryEnd.Text := Val;
       end;
     end;
     CloseFile(F);
@@ -1152,6 +1244,11 @@ begin
     WriteLn(F, 'poll_interval=' + edtPollInterval.Text);
     WriteLn(F, 'state_save_interval=' + edtStateSaveInterval.Text);
     WriteLn(F, 'default_warmup=' + edtDefaultWarmup.Text);
+    WriteLn(F, 'market_open=' + edtMarketOpen.Text);
+    WriteLn(F, 'market_close=' + edtMarketClose.Text);
+    WriteLn(F, 'force_exit=' + edtForceExit.Text);
+    WriteLn(F, 'entry_start=' + edtEntryStart.Text);
+    WriteLn(F, 'entry_end=' + edtEntryEnd.Text);
     CloseFile(F);
   except
     on E: Exception do Log('Save failed: ' + AnsiString(E.Message));

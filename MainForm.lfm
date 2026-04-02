@@ -207,11 +207,39 @@ object frmDashboard: TfrmDashboard
       Caption = ''
     end
     object lblTickCount: TLabel
-      Left = 700
+      Left = 400
+      Height = 20
+      Top = 12
+      Width = 80
+      Caption = ''
+    end
+    object lblDailyPnLBar: TLabel
+      Left = 500
       Height = 20
       Top = 12
       Width = 120
-      Caption = ''
+      Caption = 'P&L: --'
+      Font.Style = [fsBold]
+      ParentFont = False
+    end
+    object lblMarketClock: TLabel
+      Left = 650
+      Height = 20
+      Top = 12
+      Width = 160
+      Caption = '--:--:-- | --'
+    end
+    object btnFlattenAll: TButton
+      Left = 850
+      Height = 30
+      Top = 7
+      Width = 90
+      Caption = 'FLATTEN ALL'
+      Font.Color = clRed
+      Font.Style = [fsBold]
+      ParentFont = False
+      OnClick = btnFlattenAllClick
+      TabOrder = 3
     end
   end
   object nbPages: TPageControl
@@ -902,31 +930,109 @@ object frmDashboard: TfrmDashboard
           TabOrder = 3
         end
       end
+      object grpTradingHours: TGroupBox
+        Left = 8
+        Height = 100
+        Top = 482
+        Width = 620
+        Caption = 'Trading Hours'
+        TabOrder = 3
+        object lblMarketOpen: TLabel
+          Left = 16
+          Height = 20
+          Top = 24
+          Width = 80
+          Caption = 'Market Open'
+        end
+        object edtMarketOpen: TEdit
+          Left = 100
+          Height = 26
+          Top = 22
+          Width = 60
+          TabOrder = 0
+        end
+        object lblMarketClose: TLabel
+          Left = 180
+          Height = 20
+          Top = 24
+          Width = 85
+          Caption = 'Market Close'
+        end
+        object edtMarketClose: TEdit
+          Left = 270
+          Height = 26
+          Top = 22
+          Width = 60
+          TabOrder = 1
+        end
+        object lblForceExit: TLabel
+          Left = 350
+          Height = 20
+          Top = 24
+          Width = 70
+          Caption = 'Force Exit'
+        end
+        object edtForceExit: TEdit
+          Left = 430
+          Height = 26
+          Top = 22
+          Width = 60
+          TabOrder = 2
+        end
+        object lblEntryStart: TLabel
+          Left = 16
+          Height = 20
+          Top = 62
+          Width = 75
+          Caption = 'Entry Start'
+        end
+        object edtEntryStart: TEdit
+          Left = 100
+          Height = 26
+          Top = 60
+          Width = 60
+          TabOrder = 3
+        end
+        object lblEntryEnd: TLabel
+          Left = 180
+          Height = 20
+          Top = 62
+          Width = 65
+          Caption = 'Entry End'
+        end
+        object edtEntryEnd: TEdit
+          Left = 270
+          Height = 26
+          Top = 60
+          Width = 60
+          TabOrder = 4
+        end
+      end
       object btnSaveSettings: TButton
         Left = 8
         Height = 30
-        Top = 484
+        Top = 590
         Width = 100
         Caption = 'Save All'
         OnClick = btnSaveSettingsClick
-        TabOrder = 3
+        TabOrder = 4
       end
       object btnLaunchWizard: TButton
         Left = 120
         Height = 30
-        Top = 484
+        Top = 590
         Width = 140
         Caption = 'Launch Bot Wizard'
         OnClick = btnLaunchWizardClick
-        TabOrder = 4
+        TabOrder = 5
       end
     end
     object tsLog: TTabSheet
       Caption = 'Log'
       object memoLog: TMemo
         Left = 0
-        Height = 592
-        Top = 36
+        Height = 562
+        Top = 66
         Width = 952
         Align = alClient
         Font.Name = 'Menlo'
@@ -936,14 +1042,102 @@ object frmDashboard: TfrmDashboard
         ScrollBars = ssBoth
         TabOrder = 0
       end
-      object btnClearLog: TButton
-        Left = 8
-        Height = 28
-        Top = 4
-        Width = 80
-        Caption = 'Clear'
-        OnClick = btnClearLogClick
+      object pnlLogToolbar: TPanel
+        Left = 0
+        Height = 36
+        Top = 0
+        Width = 952
+        Align = alTop
+        BevelOuter = bvNone
         TabOrder = 1
+        object btnClearLog: TButton
+          Left = 8
+          Height = 28
+          Top = 4
+          Width = 80
+          Caption = 'Clear'
+          OnClick = btnClearLogClick
+          TabOrder = 0
+        end
+      end
+      object pnlLogFilter: TPanel
+        Left = 0
+        Height = 30
+        Top = 36
+        Width = 952
+        Align = alTop
+        BevelOuter = bvNone
+        TabOrder = 2
+        object chkLogInfo: TCheckBox
+          Left = 8
+          Height = 22
+          Top = 4
+          Width = 50
+          Caption = 'Info'
+          Checked = True
+          State = cbChecked
+          TabOrder = 0
+        end
+        object chkLogWarn: TCheckBox
+          Left = 70
+          Height = 22
+          Top = 4
+          Width = 55
+          Caption = 'Warn'
+          Checked = True
+          State = cbChecked
+          TabOrder = 1
+        end
+        object chkLogError: TCheckBox
+          Left = 140
+          Height = 22
+          Top = 4
+          Width = 55
+          Caption = 'Error'
+          Checked = True
+          State = cbChecked
+          TabOrder = 2
+        end
+        object chkLogRisk: TCheckBox
+          Left = 210
+          Height = 22
+          Top = 4
+          Width = 50
+          Caption = 'Risk'
+          Checked = True
+          State = cbChecked
+          TabOrder = 3
+        end
+        object chkLogOrder: TCheckBox
+          Left = 275
+          Height = 22
+          Top = 4
+          Width = 55
+          Caption = 'Order'
+          Checked = True
+          State = cbChecked
+          TabOrder = 4
+        end
+        object chkLogFill: TCheckBox
+          Left = 345
+          Height = 22
+          Top = 4
+          Width = 45
+          Caption = 'Fill'
+          Checked = True
+          State = cbChecked
+          TabOrder = 5
+        end
+        object chkLogSystem: TCheckBox
+          Left = 405
+          Height = 22
+          Top = 4
+          Width = 65
+          Caption = 'System'
+          Checked = True
+          State = cbChecked
+          TabOrder = 6
+        end
       end
     end
     object tsHealth: TTabSheet
