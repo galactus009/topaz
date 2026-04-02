@@ -135,17 +135,29 @@ object frmDashboard: TfrmDashboard
       OnClick = btnNavLogClick
       TabOrder = 5
     end
-    object btnNavHealth: TButton
+    object btnNavOptions: TButton
       Left = 4
       Height = 32
       Top = 264
+      Width = 132
+      Caption = 'Options'
+      Color = 2105376
+      Font.Color = clWhite
+      ParentFont = False
+      OnClick = btnNavOptionsClick
+      TabOrder = 6
+    end
+    object btnNavHealth: TButton
+      Left = 4
+      Height = 32
+      Top = 300
       Width = 132
       Caption = 'Health'
       Color = 2105376
       Font.Color = clWhite
       ParentFont = False
       OnClick = btnNavHealthClick
-      TabOrder = 6
+      TabOrder = 7
     end
     object lblNavBotCount: TLabel
       Left = 8
@@ -1179,6 +1191,83 @@ object frmDashboard: TfrmDashboard
           State = cbChecked
           TabOrder = 6
         end
+      end
+    end
+    object tsOptionChain: TTabSheet
+      Caption = 'Options'
+      object pnlChainToolbar: TPanel
+        Left = 0
+        Height = 40
+        Top = 0
+        Width = 952
+        Align = alTop
+        BevelOuter = bvNone
+        TabOrder = 0
+        object lblChainUnderlying: TLabel
+          Left = 8
+          Height = 20
+          Top = 10
+          Width = 70
+          Caption = 'Underlying'
+        end
+        object edtChainUnderlying: TEdit
+          Left = 85
+          Height = 26
+          Top = 7
+          Width = 120
+          TabOrder = 0
+        end
+        object lblChainExpiry: TLabel
+          Left = 215
+          Height = 20
+          Top = 10
+          Width = 45
+          Caption = 'Expiry'
+        end
+        object cbxChainExpiry: TComboBox
+          Left = 265
+          Height = 26
+          Top = 7
+          Width = 140
+          Style = csDropDownList
+          TabOrder = 1
+        end
+        object btnLoadChain: TButton
+          Left = 415
+          Height = 26
+          Top = 7
+          Width = 80
+          Caption = 'Load Chain'
+          OnClick = btnLoadChainClick
+          TabOrder = 2
+        end
+        object lblIVRank: TLabel
+          Left = 520
+          Height = 20
+          Top = 10
+          Width = 200
+          Caption = 'IV Rank: -- | Regime: --'
+        end
+        object lblMaxPain: TLabel
+          Left = 750
+          Height = 20
+          Top = 10
+          Width = 180
+          Caption = 'Max Pain: -- | PCR: --'
+        end
+      end
+      object gridOptionChain: TStringGrid
+        Left = 0
+        Height = 588
+        Top = 40
+        Width = 952
+        Align = alClient
+        ColCount = 13
+        FixedCols = 0
+        RowCount = 1
+        FixedRows = 1
+        Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRangeSelect, goRowSelect]
+        TabOrder = 1
       end
     end
     object tsHealth: TTabSheet

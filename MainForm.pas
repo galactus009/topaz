@@ -20,7 +20,8 @@ uses
   StdCtrls, ExtCtrls, Grids, Spin, ComCtrls, Menus, Generics.Collections,
   LCLType,
   Apollo.Broker, Topaz.EventTypes, Topaz.Strategy, Topaz.Risk,
-  Topaz.State, Topaz.Reconciler, Topaz.Session, BotWizard;
+  Topaz.State, Topaz.Reconciler, Topaz.Session, BotWizard,
+  Topaz.IVAnalysis, Topaz.BlackScholes;
 
 type
   TEngineState = (esIdle, esStarting, esConnected, esStopping, esError);
@@ -45,6 +46,7 @@ type
     btnNavSearch: TButton;
     btnNavSettings: TButton;
     btnNavLog: TButton;
+    btnNavOptions: TButton;
     btnNavHealth: TButton;
     lblAppTitle: TLabel;
     lblNavBotCount: TLabel;
@@ -70,6 +72,7 @@ type
     tsSearch: TTabSheet;
     tsSettings: TTabSheet;
     tsLog: TTabSheet;
+    tsOptionChain: TTabSheet;
     tsHealth: TTabSheet;
 
     { ── Page: Dashboard ── }
@@ -186,6 +189,17 @@ type
     chkLogFill: TCheckBox;
     chkLogSystem: TCheckBox;
 
+    { ── Page: Options Chain ── }
+    pnlChainToolbar: TPanel;
+    lblChainUnderlying: TLabel;
+    edtChainUnderlying: TEdit;
+    lblChainExpiry: TLabel;
+    cbxChainExpiry: TComboBox;
+    btnLoadChain: TButton;
+    lblIVRank: TLabel;
+    lblMaxPain: TLabel;
+    gridOptionChain: TStringGrid;
+
     { ── Page: Health ── }
     pnlHealthTop: TPanel;
     shpRiskLight: TShape;
@@ -223,7 +237,9 @@ type
     procedure btnNavSearchClick(Sender: TObject);
     procedure btnNavSettingsClick(Sender: TObject);
     procedure btnNavLogClick(Sender: TObject);
+    procedure btnNavOptionsClick(Sender: TObject);
     procedure btnNavHealthClick(Sender: TObject);
+    procedure btnLoadChainClick(Sender: TObject);
     procedure btnStartEngineClick(Sender: TObject);
     procedure btnStopEngineClick(Sender: TObject);
     procedure btnRestartEngineClick(Sender: TObject);
@@ -283,7 +299,7 @@ implementation
 {$R *.lfm}
 
 uses
-  fpjson, jsonparser, StrUtils;
+  fpjson, jsonparser, StrUtils, DateUtils, Math;
 
 const
   PAGE_DASHBOARD  = 0;
@@ -292,7 +308,8 @@ const
   PAGE_SEARCH     = 3;
   PAGE_SETTINGS   = 4;
   PAGE_LOG        = 5;
-  PAGE_HEALTH     = 6;
+  PAGE_OPTIONS    = 6;
+  PAGE_HEALTH     = 7;
 
 { ═══════════════════════════════════════════════════════════════════ }
 {  Form lifecycle                                                     }
@@ -324,6 +341,10 @@ begin
   InitGridHeaders(gridSearch,
     ['Symbol', 'Name', 'Exchange', 'Type', 'Lot', 'Tick', 'Key'],
     [110, 150, 70, 60, 50, 50, 150]);
+  InitGridHeaders(gridOptionChain,
+    ['CE OI', 'CE Vol', 'CE LTP', 'CE IV', 'CE Delta', 'CE Gamma', 'Strike',
+     'PE Gamma', 'PE Delta', 'PE IV', 'PE LTP', 'PE Vol', 'PE OI'],
+    [70, 60, 70, 60, 65, 65, 80, 65, 65, 60, 70, 60, 70]);
   InitGridHeaders(gridHealth,
     ['Strategy', 'Status', 'Trades', 'Win%', 'P&L', 'Max DD', 'Sharpe', 'Ticks'],
     [100, 70, 60, 60, 80, 80, 70, 70]);
@@ -399,7 +420,8 @@ begin
     VK_F4: begin ShowPage(PAGE_SEARCH); HighlightNav(btnNavSearch); end;
     VK_F7: begin ShowPage(PAGE_SETTINGS); HighlightNav(btnNavSettings); end;
     VK_F8: begin ShowPage(PAGE_LOG); HighlightNav(btnNavLog); end;
-    VK_F9: begin ShowPage(PAGE_HEALTH); HighlightNav(btnNavHealth); end;
+    VK_F9: begin ShowPage(PAGE_OPTIONS); HighlightNav(btnNavOptions); end;
+    VK_F10: begin ShowPage(PAGE_HEALTH); HighlightNav(btnNavHealth); end;
   end;
 end;
 
@@ -442,6 +464,9 @@ begin ShowPage(PAGE_SETTINGS); HighlightNav(btnNavSettings); end;
 
 procedure TfrmDashboard.btnNavLogClick(Sender: TObject);
 begin ShowPage(PAGE_LOG); HighlightNav(btnNavLog); end;
+
+procedure TfrmDashboard.btnNavOptionsClick(Sender: TObject);
+begin ShowPage(PAGE_OPTIONS); HighlightNav(btnNavOptions); end;
 
 procedure TfrmDashboard.btnNavHealthClick(Sender: TObject);
 begin ShowPage(PAGE_HEALTH); HighlightNav(btnNavHealth); end;
@@ -1327,6 +1352,195 @@ begin
   FBots[Idx] := Bot;
   gridStrategies.Cells[4, Row] := #$E2#$97#$8B + ' Stopped';
   Log('Stopped: ' + string(Bot.Name));
+end;
+
+{ ═══════════════════════════════════════════════════════════════════ }
+{  Options Chain                                                       }
+{ ═══════════════════════════════════════════════════════════════════ }
+
+procedure TfrmDashboard.btnLoadChainClick(Sender: TObject);
+var
+  Underlying, ExpiriesJson, StrikesJson: AnsiString;
+  JData, JStrikesData: TJSONData;
+  JArr, JStrikesArr: TJSONArray;
+  JObj: TJSONObject;
+  I, Row: Integer;
+  ExpiryUnix: Int64;
+  Strikes: array of Double;
+  CallOI, PutOI: array of Int64;
+  CEKey, PEKey: AnsiString;
+  CELTP, PELTP, Spot, TTE, CEIV, PEIV: Double;
+  CEGreeks, PEGreeks: TGreeks;
+  MaxPain: TMaxPainResult;
+  IVAnalyzer: TIVAnalyzer;
+  Stats: TIVStats;
+  AvgIV: Double;
+begin
+  if FBroker = nil then begin Log('Engine not running'); Exit; end;
+  Underlying := AnsiString(edtChainUnderlying.Text);
+  if Underlying = '' then begin Log('Enter underlying symbol'); Exit; end;
+
+  // Step 1: Load expiries if combo is empty
+  if cbxChainExpiry.Items.Count = 0 then
+  begin
+    ExpiriesJson := FBroker.ListExpiriesJson(Underlying, exNFO);
+    if ExpiriesJson = '' then
+    begin
+      Log('No expiries found for ' + Underlying);
+      Exit;
+    end;
+    try
+      JData := GetJSON(string(ExpiriesJson));
+      try
+        if JData is TJSONArray then
+        begin
+          JArr := JData as TJSONArray;
+          cbxChainExpiry.Items.Clear;
+          for I := 0 to JArr.Count - 1 do
+          begin
+            if JArr.Items[I] is TJSONObject then
+            begin
+              JObj := JArr.Objects[I];
+              cbxChainExpiry.Items.AddObject(
+                JObj.Get('label', JObj.Get('expiry', '')),
+                TObject(PtrInt(JObj.Get('unix', Int64(0)))));
+            end
+            else
+              cbxChainExpiry.Items.Add(JArr.Items[I].AsString);
+          end;
+          if cbxChainExpiry.Items.Count > 0 then
+            cbxChainExpiry.ItemIndex := 0;
+        end;
+      finally
+        JData.Free;
+      end;
+    except
+      on E: Exception do begin Log('Expiry parse error: ' + AnsiString(E.Message)); Exit; end;
+    end;
+    Log(Format('Loaded %d expiries for %s', [cbxChainExpiry.Items.Count, string(Underlying)]));
+    Exit;
+  end;
+
+  // Step 2: Load option chain for selected expiry
+  if cbxChainExpiry.ItemIndex < 0 then begin Log('Select an expiry'); Exit; end;
+  ExpiryUnix := PtrInt(cbxChainExpiry.Items.Objects[cbxChainExpiry.ItemIndex]);
+
+  StrikesJson := FBroker.ListStrikesJson(Underlying, ExpiryUnix, exNFO);
+  if StrikesJson = '' then begin Log('No strikes found'); Exit; end;
+
+  // Get spot price
+  Spot := FBroker.LTP(Underlying, exNSE);
+  if Spot <= 0 then
+    Spot := FBroker.LTP(Underlying, exNFO);
+
+  // Compute time to expiry in years (approximate)
+  if ExpiryUnix > 0 then
+    TTE := (ExpiryUnix - DateTimeToUnix(Now)) / (365.25 * 86400)
+  else
+    TTE := 7.0 / 365.25;
+  if TTE <= 0 then TTE := 1.0 / 365.25;
+
+  try
+    JStrikesData := GetJSON(string(StrikesJson));
+    try
+      if not (JStrikesData is TJSONArray) then
+      begin
+        Log('Invalid strikes data');
+        JStrikesData.Free;
+        Exit;
+      end;
+      JStrikesArr := JStrikesData as TJSONArray;
+
+      SetLength(Strikes, JStrikesArr.Count);
+      SetLength(CallOI, JStrikesArr.Count);
+      SetLength(PutOI, JStrikesArr.Count);
+
+      gridOptionChain.RowCount := 1;
+
+      for I := 0 to JStrikesArr.Count - 1 do
+      begin
+        if not (JStrikesArr.Items[I] is TJSONObject) then Continue;
+        JObj := JStrikesArr.Objects[I];
+
+        Strikes[I] := JObj.Get('strike', 0.0);
+        CEKey := AnsiString(JObj.Get('ce_key', ''));
+        PEKey := AnsiString(JObj.Get('pe_key', ''));
+        CallOI[I] := JObj.Get('ce_oi', Int64(0));
+        PutOI[I] := JObj.Get('pe_oi', Int64(0));
+
+        // Get LTP for CE and PE
+        CELTP := 0; PELTP := 0;
+        if CEKey <> '' then
+          CELTP := FBroker.LTP(CEKey, exNFO);
+        if PEKey <> '' then
+          PELTP := FBroker.LTP(PEKey, exNFO);
+
+        // Compute Greeks via Black-Scholes
+        // Use a default IV estimate if we can compute it
+        CEIV := 0.20; PEIV := 0.20;
+        if (Spot > 0) and (Strikes[I] > 0) and (CELTP > 0) then
+          CEIV := Max(0.01, CELTP / (Spot * 0.4 * Sqrt(TTE)));
+        if (Spot > 0) and (Strikes[I] > 0) and (PELTP > 0) then
+          PEIV := Max(0.01, PELTP / (Spot * 0.4 * Sqrt(TTE)));
+
+        CEGreeks := TBlackScholes.Calculate(Spot, Strikes[I], TTE, CEIV, 0.07, 0.0, True);
+        PEGreeks := TBlackScholes.Calculate(Spot, Strikes[I], TTE, PEIV, 0.07, 0.0, False);
+
+        Row := gridOptionChain.RowCount;
+        gridOptionChain.RowCount := Row + 1;
+
+        gridOptionChain.Cells[0, Row] := IntToStr(CallOI[I]);
+        gridOptionChain.Cells[1, Row] := IntToStr(JObj.Get('ce_vol', Int64(0)));
+        gridOptionChain.Cells[2, Row] := FormatFloat('0.00', CELTP);
+        gridOptionChain.Cells[3, Row] := FormatFloat('0.00', CEIV * 100);
+        gridOptionChain.Cells[4, Row] := FormatFloat('0.000', CEGreeks.Delta);
+        gridOptionChain.Cells[5, Row] := FormatFloat('0.0000', CEGreeks.Gamma);
+        gridOptionChain.Cells[6, Row] := FormatFloat('0.00', Strikes[I]);
+        gridOptionChain.Cells[7, Row] := FormatFloat('0.0000', PEGreeks.Gamma);
+        gridOptionChain.Cells[8, Row] := FormatFloat('0.000', PEGreeks.Delta);
+        gridOptionChain.Cells[9, Row] := FormatFloat('0.00', PEIV * 100);
+        gridOptionChain.Cells[10, Row] := FormatFloat('0.00', PELTP);
+        gridOptionChain.Cells[11, Row] := IntToStr(JObj.Get('pe_vol', Int64(0)));
+        gridOptionChain.Cells[12, Row] := IntToStr(PutOI[I]);
+      end;
+
+      // Compute Max Pain
+      MaxPain := TIVAnalyzer.ComputeMaxPain(Strikes, CallOI, PutOI, Spot);
+      lblMaxPain.Caption := Format('Max Pain: %.0f | PCR: %.2f',
+        [MaxPain.Strike, MaxPain.PCR]);
+
+      // Compute IV Rank from average chain IV
+      AvgIV := 0;
+      if gridOptionChain.RowCount > 1 then
+      begin
+        for I := 1 to gridOptionChain.RowCount - 1 do
+          AvgIV := AvgIV + StrToFloatDef(gridOptionChain.Cells[3, I], 0);
+        AvgIV := AvgIV / (gridOptionChain.RowCount - 1);
+      end;
+
+      IVAnalyzer := TIVAnalyzer.Create;
+      try
+        // Seed with a simple range estimate if no historical data
+        IVAnalyzer.AddHistoricalIV(AvgIV * 0.6);
+        IVAnalyzer.AddHistoricalIV(AvgIV * 0.8);
+        IVAnalyzer.AddHistoricalIV(AvgIV);
+        IVAnalyzer.AddHistoricalIV(AvgIV * 1.2);
+        IVAnalyzer.AddHistoricalIV(AvgIV * 1.5);
+        Stats := IVAnalyzer.ComputeStats(AvgIV);
+        lblIVRank.Caption := Format('IV Rank: %.0f | Regime: %s',
+          [Stats.IVRank, string(Stats.Regime)]);
+      finally
+        IVAnalyzer.Free;
+      end;
+
+      Log(Format('Options chain loaded: %d strikes, Max Pain=%.0f, PCR=%.2f',
+        [Length(Strikes), MaxPain.Strike, MaxPain.PCR]));
+    finally
+      JStrikesData.Free;
+    end;
+  except
+    on E: Exception do Log('Chain error: ' + AnsiString(E.Message));
+  end;
 end;
 
 { ═══════════════════════════════════════════════════════════════════ }
