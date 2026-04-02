@@ -7,7 +7,9 @@ uses
   Interfaces,
   Forms,
   MainForm,
-  Topaz.Strategy.OptionScalper;
+  Topaz.Strategy.OptionScalper,
+  Topaz.Strategy.MLStrategy,
+  Topaz.Strategy.KalmanScalper;
 
 begin
   RequireDerivedFormResource := True;
