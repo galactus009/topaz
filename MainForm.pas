@@ -18,7 +18,8 @@ interface
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs,
   StdCtrls, ExtCtrls, Grids, Spin, ComCtrls, Generics.Collections,
-  Apollo.Broker, Topaz.EventTypes, Topaz.Strategy, BotWizard;
+  Apollo.Broker, Topaz.EventTypes, Topaz.Strategy, Topaz.Risk,
+  Topaz.State, Topaz.Reconciler, BotWizard;
 
 type
   TEngineState = (esIdle, esStarting, esConnected, esStopping, esError);
@@ -164,6 +165,8 @@ type
     FSymbolRowMap: TDictionary<Integer, Integer>;
     FPrevLTP: array of Double;
     FBots: TList<TRunningBot>;
+    FRisk: TRiskManager;
+    FState: TStateManager;
 
     procedure ShowPage(AIndex: Integer);
     procedure HighlightNav(ABtn: TButton);
@@ -211,6 +214,9 @@ begin
   FEngineState := esIdle;
   FSymbolRowMap := TDictionary<Integer, Integer>.Create;
   FBots := TList<TRunningBot>.Create;
+  FRisk := TRiskManager.Create;
+  FState := TStateManager.Create;
+  FState.Load;
 
   // Init grid headers
   InitGridHeaders(gridWatchlist,
@@ -241,9 +247,12 @@ procedure TfrmDashboard.FormDestroy(Sender: TObject);
 begin
   tmrDrain.Enabled := False;
   tmrPoll.Enabled := False;
+  FState.Save;
   SaveBots;
   StopEngine;
   SaveSettings;
+  FRisk.Free;
+  FState.Free;
   FSymbolRowMap.Free;
   FBots.Free;
 end;
@@ -397,6 +406,24 @@ begin
       [string(FBroker.Name), FBroker.InstrumentCount]);
     Log(Format('Engine started: %s (%d instruments)',
       [string(FBroker.Name), FBroker.InstrumentCount]));
+
+    // Reconcile positions with broker
+    try
+      with TReconciler.Create(FBroker, FState) do
+      try
+        Reconcile;
+        if HasDrift then
+          Log('RECONCILE: ' + AnsiString(DriftSummary))
+        else
+          Log('RECONCILE: Positions match broker');
+      finally
+        Free;
+      end;
+    except
+      on E: Exception do Log('RECONCILE: ' + AnsiString(E.Message));
+    end;
+
+    FRisk.ResetDaily;
     SetEngineState(esConnected);
   except
     on E: Exception do
@@ -566,7 +593,20 @@ begin
     begin
       gridStrategies.Cells[5, I + 1] := FormatFloat('0.00', Bot.Strategy.PnL);
       gridStrategies.Cells[6, I + 1] := IntToStr(Bot.Strategy.TickCount);
+      // Update risk manager with strategy P&L
+      FRisk.UpdatePnL(Bot.Name, Bot.Strategy.PnL);
     end;
+  end;
+
+  // Update daily P&L and auto-save state
+  FRisk.UpdateDailyPnL(Used);  // approximate from margin used
+  FState.CheckAutoSave;
+
+  // Kill switch check
+  if FRisk.KillSwitchTripped then
+  begin
+    Log('RISK: Kill switch tripped — ' + AnsiString(FRisk.LastViolation));
+    StopEngine;
   end;
 end;
 

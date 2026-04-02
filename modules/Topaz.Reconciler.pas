@@ -233,20 +233,18 @@ begin
     for I := 0 to FDrifts.Count - 1 do
     begin
       D := FDrifts[I];
-      case D.Action of
-        'match':
-          SL.Add(Format('  [OK]    %s  qty=%d  avg=%.2f',
-            [D.Symbol, D.BrokerQty, D.BrokerAvgPrice]));
-        'qty_mismatch':
-          SL.Add(Format('  [DRIFT] %s  local=%d  broker=%d  (avg local=%.2f broker=%.2f)',
-            [D.Symbol, D.LocalQty, D.BrokerQty, D.LocalAvgPrice, D.BrokerAvgPrice]));
-        'broker_only':
-          SL.Add(Format('  [ORPHAN] %s  broker_qty=%d  avg=%.2f  (not tracked locally)',
-            [D.Symbol, D.BrokerQty, D.BrokerAvgPrice]));
-        'local_only':
-          SL.Add(Format('  [STALE] %s  local_qty=%d  avg=%.2f  (not at broker)',
-            [D.Symbol, D.LocalQty, D.LocalAvgPrice]));
-      end;
+      if D.Action = 'match' then
+        SL.Add(Format('  [OK]    %s  qty=%d  avg=%.2f',
+          [D.Symbol, D.BrokerQty, D.BrokerAvgPrice]))
+      else if D.Action = 'qty_mismatch' then
+        SL.Add(Format('  [DRIFT] %s  local=%d  broker=%d  (avg local=%.2f broker=%.2f)',
+          [D.Symbol, D.LocalQty, D.BrokerQty, D.LocalAvgPrice, D.BrokerAvgPrice]))
+      else if D.Action = 'broker_only' then
+        SL.Add(Format('  [ORPHAN] %s  broker_qty=%d  avg=%.2f  (not tracked locally)',
+          [D.Symbol, D.BrokerQty, D.BrokerAvgPrice]))
+      else if D.Action = 'local_only' then
+        SL.Add(Format('  [STALE] %s  local_qty=%d  avg=%.2f  (not at broker)',
+          [D.Symbol, D.LocalQty, D.LocalAvgPrice]));
     end;
 
     if not HasDrift then
