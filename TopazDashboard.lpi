@@ -81,15 +81,15 @@
         <ResourceBaseClass Value="Form"/>
       </Unit1>
       <Unit2>
-        <Filename Value="Topaz.RingBuffer.pas"/>
+        <Filename Value="modules/Topaz.RingBuffer.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit2>
       <Unit3>
-        <Filename Value="Topaz.EventTypes.pas"/>
+        <Filename Value="modules/Topaz.EventTypes.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit3>
       <Unit4>
-        <Filename Value="Topaz.Strategy.pas"/>
+        <Filename Value="modules/Topaz.Strategy.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit4>
       <Unit5>

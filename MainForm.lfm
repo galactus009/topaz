@@ -660,7 +660,6 @@ object frmDashboard: TfrmDashboard
         Height = 26
         Top = 62
         Width = 500
-        EchoMode = emPassword
         TabOrder = 1
       end
       object lblApiKeyLabel: TLabel

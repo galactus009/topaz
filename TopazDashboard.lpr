@@ -9,7 +9,15 @@ uses
   MainForm,
   Topaz.Strategy.OptionScalper,
   Topaz.Strategy.MLStrategy,
-  Topaz.Strategy.KalmanScalper;
+  Topaz.Strategy.KalmanScalper,
+  Topaz.Strategy.Momentum,
+  Topaz.Strategy.DoubleRSI,
+  Topaz.Strategy.MeanReversion,
+  Topaz.Strategy.ORB,
+  Topaz.Strategy.ExpiryGamma,
+  Topaz.Strategy.CompositeScalper,
+  Topaz.Strategy.GammaScalp,
+  Topaz.Strategy.OptionsScalper;
 
 begin
   RequireDerivedFormResource := True;
