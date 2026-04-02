@@ -1,16 +1,17 @@
 object frmDashboard: TfrmDashboard
   Left = 200
-  Height = 700
+  Height = 900
   Top = 100
-  Width = 1100
+  Width = 1400
   Caption = 'Topaz Trading Dashboard'
-  ClientHeight = 700
-  ClientWidth = 1100
+  ClientHeight = 900
+  ClientWidth = 1400
   Color = clForm
   OnCreate = FormCreate
   OnDestroy = FormDestroy
   OnCloseQuery = FormCloseQuery
   Position = poScreenCenter
+  WindowState = wsMaximized
   object pnlStatusBar: TPanel
     Left = 0
     Height = 24
@@ -144,6 +145,24 @@ object frmDashboard: TfrmDashboard
       OnClick = btnNavHealthClick
       TabOrder = 6
     end
+    object lblNavBotCount: TLabel
+      Left = 8
+      Top = 620
+      Width = 124
+      Height = 16
+      Caption = 'Bots: 0'
+      Font.Color = clSilver
+      ParentFont = False
+    end
+    object lblNavPositions: TLabel
+      Left = 8
+      Top = 640
+      Width = 124
+      Height = 16
+      Caption = 'Positions: 0'
+      Font.Color = clSilver
+      ParentFont = False
+    end
   end
   object pnlTopBar: TPanel
     Left = 140
@@ -193,44 +212,37 @@ object frmDashboard: TfrmDashboard
       Shape = stCircle
     end
     object lblStatus: TLabel
-      Left = 284
-      Height = 20
-      Top = 12
-      Width = 100
-      Caption = 'Disconnected'
-    end
-    object lblBrokerInfo: TLabel
-      Left = 420
-      Height = 20
-      Top = 12
-      Width = 200
-      Caption = ''
-    end
-    object lblTickCount: TLabel
-      Left = 400
+      Left = 280
       Height = 20
       Top = 12
       Width = 80
+      Caption = 'Disconnected'
+    end
+    object lblBrokerInfo: TLabel
+      Left = 370
+      Height = 20
+      Top = 12
+      Width = 120
       Caption = ''
     end
     object lblDailyPnLBar: TLabel
       Left = 500
       Height = 20
       Top = 12
-      Width = 120
+      Width = 140
       Caption = 'P&L: --'
       Font.Style = [fsBold]
       ParentFont = False
     end
     object lblMarketClock: TLabel
-      Left = 650
+      Left = 660
       Height = 20
       Top = 12
-      Width = 160
+      Width = 200
       Caption = '--:--:-- | --'
     end
     object btnFlattenAll: TButton
-      Left = 850
+      Left = 880
       Height = 30
       Top = 7
       Width = 90
@@ -318,6 +330,7 @@ object frmDashboard: TfrmDashboard
         RowCount = 1
         FixedRows = 1
         Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRangeSelect, goRowSelect]
+        OnDblClick = gridWatchlistDblClick
         TabOrder = 1
       end
       object pnlDashBottom: TPanel

@@ -46,6 +46,8 @@ type
     btnNavLog: TButton;
     btnNavHealth: TButton;
     lblAppTitle: TLabel;
+    lblNavBotCount: TLabel;
+    lblNavPositions: TLabel;
 
     { ── Top bar ── }
     pnlTopBar: TPanel;
@@ -55,7 +57,6 @@ type
     shpStatus: TShape;
     lblStatus: TLabel;
     lblBrokerInfo: TLabel;
-    lblTickCount: TLabel;
     lblDailyPnLBar: TLabel;
     lblMarketClock: TLabel;
     btnFlattenAll: TButton;
@@ -223,6 +224,7 @@ type
     procedure btnFlattenAllClick(Sender: TObject);
     procedure btnStratStartClick(Sender: TObject);
     procedure btnStratStopClick(Sender: TObject);
+    procedure gridWatchlistDblClick(Sender: TObject);
     procedure tmrDrainTimer(Sender: TObject);
     procedure tmrPollTimer(Sender: TObject);
   private
@@ -450,7 +452,12 @@ procedure TfrmDashboard.btnStartEngineClick(Sender: TObject);
 begin StartEngine; end;
 
 procedure TfrmDashboard.btnStopEngineClick(Sender: TObject);
-begin StopEngine; end;
+begin
+  if FEngineState <> esConnected then Exit;
+  if MessageDlg('Stop engine? All bots will be terminated.',
+    mtConfirmation, [mbYes, mbNo], 0) = mrYes then
+    StopEngine;
+end;
 
 procedure TfrmDashboard.btnRestartEngineClick(Sender: TObject);
 begin StopEngine; StartEngine; end;
@@ -569,7 +576,6 @@ begin
   FreeAndNil(FEventBus);
 
   lblBrokerInfo.Caption := '';
-  lblTickCount.Caption := '';
   Log('Engine stopped');
   SetEngineState(esIdle);
 end;
@@ -664,8 +670,6 @@ begin
     FStatusLastUpdate := 0;
   end;
 
-  if FBroker <> nil then
-    lblTickCount.Caption := Format('Ticks: %d', [FBroker.TickCount]);
 end;
 
 procedure TfrmDashboard.UpdateWatchlistRow(const ATick: TTickEvent);
@@ -698,13 +702,82 @@ end;
 
 procedure TfrmDashboard.ProcessOrderEvent(const AEvt: TOrderEvent);
 var
-  Row: Integer;
   S: string;
+  Row, I: Integer;
+  JObj: TJSONObject;
+  JData: TJSONData;
+  OrderId, Status, Symbol, Side: string;
+  FilledQty: Integer;
+  AvgPrice: Double;
 begin
   S := string(PAnsiChar(@AEvt.Json[0]));
-  Row := gridOrders.RowCount;
-  gridOrders.RowCount := Row + 1;
-  gridOrders.Cells[6, Row] := 'Update';
+
+  // Try to parse JSON for structured processing
+  try
+    JData := GetJSON(S);
+    if JData is TJSONObject then
+    begin
+      JObj := TJSONObject(JData);
+      OrderId := JObj.Get('order_id', JObj.Get('orderId', ''));
+      Status := JObj.Get('status', '');
+      Symbol := JObj.Get('symbol', JObj.Get('tradingsymbol', ''));
+      Side := JObj.Get('side', JObj.Get('transaction_type', ''));
+      FilledQty := JObj.Get('filled_qty', JObj.Get('filled_quantity', 0));
+      AvgPrice := JObj.Get('avg_price', JObj.Get('average_price', 0.0));
+
+      // Find existing row by order ID or add new
+      Row := -1;
+      for I := 1 to gridOrders.RowCount - 1 do
+        if gridOrders.Cells[0, I] = OrderId then
+        begin
+          Row := I;
+          Break;
+        end;
+
+      if Row < 0 then
+      begin
+        Row := gridOrders.RowCount;
+        gridOrders.RowCount := Row + 1;
+      end;
+
+      gridOrders.Cells[0, Row] := OrderId;
+      if Symbol <> '' then gridOrders.Cells[1, Row] := Symbol;
+      if Side <> '' then gridOrders.Cells[2, Row] := Side;
+      gridOrders.Cells[4, Row] := IntToStr(FilledQty);
+      if AvgPrice > 0 then gridOrders.Cells[5, Row] := FormatFloat('0.00', AvgPrice);
+      gridOrders.Cells[6, Row] := Status;
+
+      // Record fill in risk manager
+      if (FilledQty > 0) and (AvgPrice > 0) and (FRisk <> nil) then
+        FRisk.RecordFill('', AnsiString(Symbol), FilledQty, AvgPrice,
+          (LowerCase(Side) = 'buy') or (LowerCase(Side) = 'b'));
+
+      // Update state
+      if (FState <> nil) and (FilledQty > 0) then
+      begin
+        if (LowerCase(Side) = 'buy') or (LowerCase(Side) = 'b') then
+          FState.UpdatePosition('', AnsiString(Symbol), 0, FilledQty, AvgPrice, 0, 0)
+        else
+          FState.UpdatePosition('', AnsiString(Symbol), 0, -FilledQty, AvgPrice, 0, 0);
+      end;
+
+      JData.Free;
+    end
+    else
+    begin
+      JData.Free;
+      // Fallback: just log
+      Row := gridOrders.RowCount;
+      gridOrders.RowCount := Row + 1;
+      gridOrders.Cells[6, Row] := 'Update';
+    end;
+  except
+    // JSON parse failed — fallback
+    Row := gridOrders.RowCount;
+    gridOrders.RowCount := Row + 1;
+    gridOrders.Cells[6, Row] := 'Update';
+  end;
+
   Log('Order: ' + AnsiString(Copy(S, 1, 120)));
 end;
 
@@ -731,7 +804,7 @@ end;
 procedure TfrmDashboard.tmrPollTimer(Sender: TObject);
 var
   Avail, Used: Double;
-  I: Integer;
+  I, RunningCount: Integer;
   Bot: TRunningBot;
 begin
   if FBroker = nil then Exit;
@@ -766,6 +839,13 @@ begin
   lblDailyPnLBar.Caption := Format('P&L: %s%.2f',
     [IfThen(FRisk.DailyPnL >= 0, '+', ''), FRisk.DailyPnL]);
   lblMarketClock.Caption := string(GSession.ClockDisplay);
+
+  // Update side nav bot count and position count
+  RunningCount := 0;
+  for I := 0 to FBots.Count - 1 do
+    if FBots[I].Running then Inc(RunningCount);
+  lblNavBotCount.Caption := Format('Bots: %d/%d', [RunningCount, FBots.Count]);
+  lblNavPositions.Caption := Format('Positions: %d', [gridPositions.RowCount - 1]);
 
   // Refresh health page
   RefreshHealth;
@@ -1024,13 +1104,50 @@ begin
 end;
 
 procedure TfrmDashboard.btnFlattenAllClick(Sender: TObject);
+var
+  I: Integer;
+  Bot: TRunningBot;
 begin
   if MessageDlg('FLATTEN ALL positions and stop all bots?',
-    mtWarning, [mbYes, mbNo], 0) = mrYes then
+    mtWarning, [mbYes, mbNo], 0) <> mrYes then Exit;
+
+  Log('FLATTEN ALL triggered by user');
+
+  // Exit all positions via broker first
+  if FBroker <> nil then
   begin
-    StopEngine;
-    Log('FLATTEN ALL triggered by user');
+    for I := 0 to FBots.Count - 1 do
+    begin
+      Bot := FBots[I];
+      if Bot.Running and (Bot.Strategy <> nil) and (Bot.Underlying <> '') then
+      begin
+        try
+          FBroker.ExitPosition(Bot.Underlying, Bot.Strategy.Exchange);
+          Log('Exited position: ' + Bot.Underlying);
+        except
+          on E: Exception do
+            Log('Exit failed: ' + Bot.Underlying + ' — ' + AnsiString(E.Message));
+        end;
+      end;
+    end;
   end;
+
+  StopEngine;
+  Log('FLATTEN ALL complete');
+end;
+
+procedure TfrmDashboard.gridWatchlistDblClick(Sender: TObject);
+var
+  Row: Integer;
+  Sym: string;
+begin
+  Row := gridWatchlist.Row;
+  if Row < 1 then Exit;
+  Sym := gridWatchlist.Cells[0, Row];
+  if Sym = '' then Exit;
+  edtOrdSymbol.Text := Sym;
+  ShowPage(PAGE_ORDERS);
+  HighlightNav(btnNavOrders);
 end;
 
 procedure TfrmDashboard.btnStratStartClick(Sender: TObject);
@@ -1087,7 +1204,7 @@ begin
     gridStrategies.Cells[1, Row] := string(Bot.StrategyName);
     gridStrategies.Cells[2, Row] := string(Bot.Underlying);
     gridStrategies.Cells[3, Row] := IntToStr(Bot.Strategy.Lots);
-    gridStrategies.Cells[4, Row] := 'Running';
+    gridStrategies.Cells[4, Row] := #$E2#$97#$8F + ' Running';
 
     Log(Format('Started: %s (%s on %s)', [string(Bot.Name),
       string(Bot.StrategyName), string(Bot.Underlying)]));
@@ -1116,7 +1233,7 @@ begin
     FEventBus.RemoveStrategySlot(Bot.SlotIndex);
   Bot.Running := False;
   FBots[Idx] := Bot;
-  gridStrategies.Cells[4, Row] := 'Stopped';
+  gridStrategies.Cells[4, Row] := #$E2#$97#$8B + ' Stopped';
   Log('Stopped: ' + string(Bot.Name));
 end;
 
@@ -1396,7 +1513,7 @@ begin
       gridStrategies.Cells[1, Row] := string(Bot.StrategyName);
       gridStrategies.Cells[2, Row] := string(Bot.Underlying);
       gridStrategies.Cells[3, Row] := IntToStr(Bot.Strategy.Lots);
-      gridStrategies.Cells[4, Row] := 'Stopped';
+      gridStrategies.Cells[4, Row] := #$E2#$97#$8B + ' Stopped';
     end;
   finally
     JData.Free;
