@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <ProjectOptions>
+    <Version Value="12"/>
+    <General>
+      <Flags>
+        <MainUnitHasCreateFormStatements Value="False"/>
+        <MainUnitHasTitleStatement Value="False"/>
+        <MainUnitHasScaledStatement Value="False"/>
+        <CompatibilityMode Value="True"/>
+      </Flags>
+      <SessionStorage Value="InProjectDir"/>
+      <Title Value="TopazDashboard"/>
+      <Scaled Value="True"/>
+      <ResourceType Value="res"/>
+      <UseXPManifest Value="True"/>
+    </General>
+    <BuildModes Count="2">
+      <Item1 Name="Debug" Default="True"/>
+      <Item2 Name="Release">
+        <CompilerOptions>
+          <Version Value="11"/>
+          <Target>
+            <Filename Value="TopazDashboard"/>
+          </Target>
+          <SearchPaths>
+            <IncludeFiles Value="$(ProjOutDir)"/>
+            <OtherUnitFiles Value="modules"/>
+            <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
+          </SearchPaths>
+          <Parsing>
+            <SyntaxOptions>
+              <SyntaxMode Value="Delphi"/>
+            </SyntaxOptions>
+          </Parsing>
+          <CodeGeneration>
+            <SmartLinkUnit Value="True"/>
+            <TargetCPU Value="aarch64"/>
+            <TargetOS Value="darwin"/>
+            <Optimizations>
+              <OptimizationLevel Value="3"/>
+            </Optimizations>
+          </CodeGeneration>
+          <Linking>
+            <Debugging>
+              <GenerateDebugInfo Value="False"/>
+            </Debugging>
+            <LinkSmart Value="True"/>
+            <Options>
+              <PassLinkerOptions Value="True"/>
+              <LinkerOptions Value="-L/Users/rbhaskar/Development/apollo/target/release -ld_classic"/>
+            </Options>
+          </Linking>
+          <Other>
+            <CustomOptions Value="-dRELEASE"/>
+          </Other>
+        </CompilerOptions>
+      </Item2>
+    </BuildModes>
+    <PublishOptions>
+      <Version Value="2"/>
+    </PublishOptions>
+    <RunParams>
+      <FormatVersion Value="2"/>
+    </RunParams>
+    <RequiredPackages Count="1">
+      <Item1>
+        <PackageName Value="LCL"/>
+      </Item1>
+    </RequiredPackages>
+    <Units Count="7">
+      <Unit0>
+        <Filename Value="TopazDashboard.lpr"/>
+        <IsPartOfProject Value="True"/>
+      </Unit0>
+      <Unit1>
+        <Filename Value="MainForm.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="frmDashboard"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+      </Unit1>
+      <Unit2>
+        <Filename Value="Topaz.RingBuffer.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit2>
+      <Unit3>
+        <Filename Value="Topaz.EventTypes.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit3>
+      <Unit4>
+        <Filename Value="Topaz.Strategy.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit4>
+      <Unit5>
+        <Filename Value="modules/Apollo.Broker.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit5>
+      <Unit6>
+        <Filename Value="Topaz.Strategy.OptionScalper.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit6>
+    </Units>
+  </ProjectOptions>
+  <CompilerOptions>
+    <Version Value="11"/>
+    <Target>
+      <Filename Value="TopazDashboard"/>
+    </Target>
+    <SearchPaths>
+      <IncludeFiles Value="$(ProjOutDir)"/>
+      <OtherUnitFiles Value="modules"/>
+      <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
+    </SearchPaths>
+    <Parsing>
+      <SyntaxOptions>
+        <SyntaxMode Value="Delphi"/>
+      </SyntaxOptions>
+    </Parsing>
+    <CodeGeneration>
+      <TargetCPU Value="aarch64"/>
+      <TargetOS Value="darwin"/>
+    </CodeGeneration>
+    <Linking>
+      <Debugging>
+        <DebugInfoType Value="dsDwarf3"/>
+      </Debugging>
+      <Options>
+        <PassLinkerOptions Value="True"/>
+        <LinkerOptions Value="-L/Users/rbhaskar/Development/apollo/target/release -ld_classic"/>
+      </Options>
+    </Linking>
+  </CompilerOptions>
+  <Debugging>
+    <Exceptions Count="3">
+      <Item1>
+        <Name Value="EAbort"/>
+      </Item1>
+      <Item2>
+        <Name Value="ECodetoolError"/>
+      </Item2>
+      <Item3>
+        <Name Value="EFOpenError"/>
+      </Item3>
+    </Exceptions>
+  </Debugging>
+</CONFIG>

@@ -202,11 +202,14 @@ const
 {$IFDEF FPC}
   {$IFDEF DARWIN}
   ApolloLib = 'apollo';
-  {$LINKLIB apollo}
+  {$LINKLIB apollo, static}
+  {$LINKLIB iconv}
+  {$LINKFRAMEWORK CoreFoundation}
+  {$LINKFRAMEWORK Security}
   {$ENDIF}
   {$IFDEF LINUX}
   ApolloLib = 'apollo';
-  {$LINKLIB apollo}
+  {$LINKLIB apollo, static}
   {$ENDIF}
   {$IFDEF WINDOWS}
   ApolloLib = 'apollo.dll';

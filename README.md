@@ -1,22 +1,75 @@
-# Apollo Pascal Wrapper
+# Topaz Trading Dashboard
 
-Delphi / FreePascal wrapper for libapollo — broker-agnostic trading API for Indian markets.
+Lazarus/LCL desktop GUI for libapollo — real-time trading dashboard for Indian markets (NSE/NFO/MCX).
+
+## Architecture
+
+```
+Rust (libapollo)                    Pascal GUI (LCL/Cocoa)
+─────────────────                   ──────────────────────
+
+                    cdecl callbacks
+WS tick data  ───────────────────►  CbTick()
+WS order data ───────────────────►  CbOrder()
+WS connect    ───────────────────►  CbConnect()
+WS disconnect ───────────────────►  CbDisconnect()
+                                        │
+                                        ▼
+                                   TEventBus (lock-free SPSC rings)
+                                   ┌──────────────────────────────┐
+                                   │ GuiTicks    [SPSC 8192]      │──► tmrDrain (50ms) ──► gridWatchlist
+                                   │ Orders      [SPSC 256]       │──► tmrDrain ──► gridOrders
+                                   │ Status      [SPSC 64]        │──► tmrDrain ──► shpStatus/lblStatus
+                                   │ StratSlots  [SPSC x16]       │──► TStrategyThread.Execute (spin)
+                                   └──────────────────────────────┘
+                                        ▲
+GUI buttons ────────────────────────────┘
+  btnStart  ──► TBroker.Create/Connect/StreamStart   (direct FFI)
+  btnStop   ──► TBroker.StreamStop/Disconnect/Free   (direct FFI)
+  btnAdd    ──► TBroker.Subscribe                    (direct FFI)
+  btnOrder  ──► TBroker.PlaceOrder                   (direct FFI)
+                                        │
+                                        ▼
+                              tmrPoll (2s) ──► TBroker.AvailableMargin
+                                             ──► TBroker.UsedMargin
+                                             ──► Bot.Strategy.PnL
+```
+
+### Interaction paths
+
+1. **Rust → GUI** (hot path): Rust WS thread fires cdecl callbacks → write into
+   lock-free `TRingBuffer` → `tmrDrain` (50ms TTimer) polls rings on main thread →
+   updates grids/labels. No locks, no allocs.
+
+2. **GUI → Rust** (cold path): Button clicks call `TBroker` methods directly
+   (FFI into libapollo). Blocking HTTP calls, only on user action.
+
+3. **Rust → Strategies** (hot path): `CbTick` fans out ticks to per-strategy
+   SPSC rings. Each `TStrategyThread` spins on its own ring with `Sleep(1)` idle.
+   Strategy calls `TBroker.PlaceOrder` for orders (thread-safe in libapollo).
+
+### Isolation rules
+
+- GUI thread never touches strategy state
+- Strategies never touch GUI widgets
+- Both sides read from separate SPSC ring copies
+- Only shared object is `TBroker` (thread-safe on the Rust side)
 
 ## Files
 
 ```
-pascal/
-├── Apollo.Broker.pas      ← Single-file wrapper (add to your project)
-├── apollo.h               ← C ABI reference (36 functions)
-├── ApolloBroker.md        ← Full API documentation with GUI wiring example
-├── README.md              ← This file
-└── examples/
-    ├── QuickStart.pas     ← Connect, get LTP, check margin
-    ├── StreamTicks.pas    ← Real-time tick streaming with callbacks
-    ├── PlaceOrder.pas     ← Place, modify, cancel orders
-    ├── OptionChain.pas    ← Resolve options, ATM strike, expiries
-    ├── OrderStream.pas    ← Real-time order/trade update stream
-    └── MultiBroker.pas    ← Use multiple brokers simultaneously
+topaz/
+├── Apollo.Broker.pas              ← OOP wrapper over libapollo C FFI
+├── ApolloBroker.md                ← Full API reference
+├── README.md                      ← This file
+└── pascal/
+    ├── TopazDashboard.lpr         ← Program entry point
+    ├── TopazDashboard.lpi         ← Lazarus project file
+    ├── MainForm.pas               ← Dashboard form (6 pages)
+    ├── MainForm.lfm               ← Form layout (designer-compatible)
+    ├── Topaz.RingBuffer.pas       ← Lock-free SPSC ring buffer
+    ├── Topaz.EventTypes.pas       ← Event records + cdecl callback trampolines
+    └── Topaz.Strategy.pas         ← Strategy base class + thread runner
 ```
 
 ## Supported Brokers

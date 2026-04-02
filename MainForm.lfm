@@ -1,0 +1,745 @@
+object frmDashboard: TfrmDashboard
+  Left = 200
+  Height = 700
+  Top = 100
+  Width = 1100
+  Caption = 'Topaz Trading Dashboard'
+  ClientHeight = 700
+  ClientWidth = 1100
+  Color = clForm
+  OnCreate = FormCreate
+  OnDestroy = FormDestroy
+  OnCloseQuery = FormCloseQuery
+  Position = poScreenCenter
+  LCLVersion = '4.6'
+  object pnlSideNav: TPanel
+    Left = 0
+    Height = 700
+    Top = 0
+    Width = 140
+    Align = alLeft
+    BevelOuter = bvNone
+    Color = 2105376
+    ParentColor = False
+    TabOrder = 0
+    object lblAppTitle: TLabel
+      Left = 8
+      Height = 24
+      Top = 8
+      Width = 124
+      Alignment = taCenter
+      AutoSize = False
+      Caption = 'TOPAZ'
+      Font.Color = clWhite
+      Font.Height = -18
+      Font.Style = [fsBold]
+      ParentFont = False
+    end
+    object btnNavDashboard: TButton
+      Left = 4
+      Height = 32
+      Top = 48
+      Width = 132
+      Caption = 'Dashboard'
+      Color = 2105376
+      Font.Color = clWhite
+      ParentFont = False
+      OnClick = btnNavDashboardClick
+      TabOrder = 0
+    end
+    object btnNavOrders: TButton
+      Left = 4
+      Height = 32
+      Top = 84
+      Width = 132
+      Caption = 'Orders'
+      Color = 2105376
+      Font.Color = clWhite
+      ParentFont = False
+      OnClick = btnNavOrdersClick
+      TabOrder = 1
+    end
+    object btnNavStrategies: TButton
+      Left = 4
+      Height = 32
+      Top = 120
+      Width = 132
+      Caption = 'Strategies'
+      Color = 2105376
+      Font.Color = clWhite
+      ParentFont = False
+      OnClick = btnNavStrategiesClick
+      TabOrder = 2
+    end
+    object btnNavSearch: TButton
+      Left = 4
+      Height = 32
+      Top = 156
+      Width = 132
+      Caption = 'Search'
+      Color = 2105376
+      Font.Color = clWhite
+      ParentFont = False
+      OnClick = btnNavSearchClick
+      TabOrder = 3
+    end
+    object btnNavSettings: TButton
+      Left = 4
+      Height = 32
+      Top = 192
+      Width = 132
+      Caption = 'Settings'
+      Color = 2105376
+      Font.Color = clWhite
+      ParentFont = False
+      OnClick = btnNavSettingsClick
+      TabOrder = 4
+    end
+    object btnNavLog: TButton
+      Left = 4
+      Height = 32
+      Top = 228
+      Width = 132
+      Caption = 'Log'
+      Color = 2105376
+      Font.Color = clWhite
+      ParentFont = False
+      OnClick = btnNavLogClick
+      TabOrder = 5
+    end
+  end
+  object pnlTopBar: TPanel
+    Left = 140
+    Height = 44
+    Top = 0
+    Width = 960
+    Align = alTop
+    BevelOuter = bvNone
+    Color = clWhite
+    ParentColor = False
+    TabOrder = 1
+    object btnStartEngine: TButton
+      Left = 8
+      Height = 30
+      Top = 7
+      Width = 75
+      Caption = 'Start'
+      OnClick = btnStartEngineClick
+      TabOrder = 0
+    end
+    object btnStopEngine: TButton
+      Left = 88
+      Height = 30
+      Top = 7
+      Width = 75
+      Caption = 'Stop'
+      Enabled = False
+      OnClick = btnStopEngineClick
+      TabOrder = 1
+    end
+    object btnRestartEngine: TButton
+      Left = 168
+      Height = 30
+      Top = 7
+      Width = 75
+      Caption = 'Restart'
+      Enabled = False
+      OnClick = btnRestartEngineClick
+      TabOrder = 2
+    end
+    object shpStatus: TShape
+      Left = 260
+      Height = 16
+      Top = 14
+      Width = 16
+      Brush.Color = clRed
+      Shape = stCircle
+    end
+    object lblStatus: TLabel
+      Left = 284
+      Height = 20
+      Top = 12
+      Width = 100
+      Caption = 'Disconnected'
+    end
+    object lblBrokerInfo: TLabel
+      Left = 420
+      Height = 20
+      Top = 12
+      Width = 200
+      Caption = ''
+    end
+    object lblTickCount: TLabel
+      Left = 700
+      Height = 20
+      Top = 12
+      Width = 120
+      Caption = ''
+    end
+  end
+  object nbPages: TPageControl
+    Left = 140
+    Height = 656
+    Top = 44
+    Width = 960
+    ActivePage = tsDashboard
+    Align = alClient
+    ShowTabs = False
+    TabIndex = 0
+    TabOrder = 2
+    object tsDashboard: TTabSheet
+      Caption = 'Dashboard'
+      object pnlDashWatchToolbar: TPanel
+        Left = 0
+        Height = 36
+        Top = 0
+        Width = 952
+        Align = alTop
+        BevelOuter = bvNone
+        TabOrder = 0
+        object edtAddSymbol: TEdit
+          Left = 8
+          Height = 26
+          Top = 5
+          Width = 180
+          TabOrder = 0
+          TextHint = 'Symbol (e.g. NIFTY 50)'
+        end
+        object cbxWatchExchange: TComboBox
+          Left = 196
+          Height = 26
+          Top = 5
+          Width = 80
+          ItemHeight = 0
+          Items.Strings = (
+            'NSE'
+            'BSE'
+            'NFO'
+            'BFO'
+            'MCX'
+            'CDS'
+          )
+          ItemIndex = 0
+          Style = csDropDownList
+          TabOrder = 1
+        end
+        object btnAddSymbol: TButton
+          Left = 284
+          Height = 26
+          Top = 5
+          Width = 50
+          Caption = 'Add'
+          OnClick = btnAddSymbolClick
+          TabOrder = 2
+        end
+        object btnRemoveSymbol: TButton
+          Left = 340
+          Height = 26
+          Top = 5
+          Width = 60
+          Caption = 'Remove'
+          OnClick = btnRemoveSymbolClick
+          TabOrder = 3
+        end
+      end
+      object gridWatchlist: TStringGrid
+        Left = 0
+        Height = 370
+        Top = 36
+        Width = 952
+        Align = alClient
+        ColCount = 8
+        FixedCols = 0
+        RowCount = 1
+        FixedRows = 1
+        Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRangeSelect, goRowSelect]
+        TabOrder = 1
+      end
+      object pnlDashBottom: TPanel
+        Left = 0
+        Height = 200
+        Top = 428
+        Width = 952
+        Align = alBottom
+        BevelOuter = bvNone
+        TabOrder = 2
+        object gridPositions: TStringGrid
+          Left = 0
+          Height = 160
+          Top = 40
+          Width = 952
+          Align = alClient
+          ColCount = 6
+          FixedCols = 0
+          RowCount = 1
+          FixedRows = 1
+          Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRangeSelect, goRowSelect]
+          TabOrder = 0
+        end
+        object pnlDashFunds: TPanel
+          Left = 0
+          Height = 40
+          Top = 0
+          Width = 952
+          Align = alTop
+          BevelOuter = bvNone
+          TabOrder = 1
+          object lblFundsAvail: TLabel
+            Left = 8
+            Height = 20
+            Top = 10
+            Width = 160
+            Caption = 'Available: --'
+          end
+          object lblFundsUsed: TLabel
+            Left = 200
+            Height = 20
+            Top = 10
+            Width = 140
+            Caption = 'Used: --'
+          end
+          object lblFundsBalance: TLabel
+            Left = 380
+            Height = 20
+            Top = 10
+            Width = 160
+            Caption = 'Balance: --'
+          end
+        end
+      end
+    end
+    object tsOrders: TTabSheet
+      Caption = 'Orders'
+      object grpOrderEntry: TGroupBox
+        Left = 0
+        Height = 160
+        Top = 0
+        Width = 952
+        Align = alTop
+        Caption = 'Place Order'
+        TabOrder = 0
+        object lblOrdSymbol: TLabel
+          Left = 16
+          Height = 20
+          Top = 24
+          Width = 50
+          Caption = 'Symbol'
+        end
+        object edtOrdSymbol: TEdit
+          Left = 80
+          Height = 26
+          Top = 22
+          Width = 160
+          TabOrder = 0
+        end
+        object lblOrdExchange: TLabel
+          Left = 260
+          Height = 20
+          Top = 24
+          Width = 60
+          Caption = 'Exchange'
+        end
+        object cbxOrdExchange: TComboBox
+          Left = 330
+          Height = 26
+          Top = 22
+          Width = 80
+          ItemHeight = 0
+          Items.Strings = (
+            'NSE'
+            'BSE'
+            'NFO'
+            'BFO'
+            'MCX'
+            'CDS'
+          )
+          ItemIndex = 0
+          Style = csDropDownList
+          TabOrder = 1
+        end
+        object lblOrdSide: TLabel
+          Left = 430
+          Height = 20
+          Top = 24
+          Width = 30
+          Caption = 'Side'
+        end
+        object cbxOrdSide: TComboBox
+          Left = 470
+          Height = 26
+          Top = 22
+          Width = 70
+          ItemHeight = 0
+          Items.Strings = (
+            'Buy'
+            'Sell'
+          )
+          ItemIndex = 0
+          Style = csDropDownList
+          TabOrder = 2
+        end
+        object lblOrdType: TLabel
+          Left = 560
+          Height = 20
+          Top = 24
+          Width = 30
+          Caption = 'Type'
+        end
+        object cbxOrdType: TComboBox
+          Left = 600
+          Height = 26
+          Top = 22
+          Width = 100
+          ItemHeight = 0
+          Items.Strings = (
+            'Market'
+            'Limit'
+            'StopLoss'
+            'StopLimit'
+          )
+          ItemIndex = 0
+          Style = csDropDownList
+          TabOrder = 3
+        end
+        object lblOrdProduct: TLabel
+          Left = 720
+          Height = 20
+          Top = 24
+          Width = 50
+          Caption = 'Product'
+        end
+        object cbxOrdProduct: TComboBox
+          Left = 780
+          Height = 26
+          Top = 22
+          Width = 90
+          ItemHeight = 0
+          Items.Strings = (
+            'CNC'
+            'Intraday'
+            'Margin'
+          )
+          ItemIndex = 1
+          Style = csDropDownList
+          TabOrder = 4
+        end
+        object lblOrdQty: TLabel
+          Left = 16
+          Height = 20
+          Top = 64
+          Width = 30
+          Caption = 'Qty'
+        end
+        object edtOrdQty: TSpinEdit
+          Left = 80
+          Height = 26
+          Top = 62
+          Width = 80
+          MinValue = 1
+          Value = 1
+          TabOrder = 5
+        end
+        object lblOrdPrice: TLabel
+          Left = 180
+          Height = 20
+          Top = 64
+          Width = 40
+          Caption = 'Price'
+        end
+        object edtOrdPrice: TEdit
+          Left = 230
+          Height = 26
+          Top = 62
+          Width = 100
+          TabOrder = 6
+          TextHint = '0 = Market'
+        end
+        object lblOrdTrigger: TLabel
+          Left = 350
+          Height = 20
+          Top = 64
+          Width = 50
+          Caption = 'Trigger'
+        end
+        object edtOrdTrigger: TEdit
+          Left = 410
+          Height = 26
+          Top = 62
+          Width = 100
+          TabOrder = 7
+          TextHint = '0'
+        end
+        object btnPlaceOrder: TButton
+          Left = 540
+          Height = 30
+          Top = 60
+          Width = 100
+          Caption = 'Place Order'
+          OnClick = btnPlaceOrderClick
+          TabOrder = 8
+        end
+      end
+      object gridOrders: TStringGrid
+        Left = 0
+        Height = 468
+        Top = 160
+        Width = 952
+        Align = alClient
+        ColCount = 7
+        FixedCols = 0
+        RowCount = 1
+        FixedRows = 1
+        Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRangeSelect, goRowSelect]
+        TabOrder = 1
+      end
+    end
+    object tsStrategies: TTabSheet
+      Caption = 'Strategies'
+      object pnlStratToolbar: TPanel
+        Left = 0
+        Height = 40
+        Top = 0
+        Width = 952
+        Align = alTop
+        BevelOuter = bvNone
+        TabOrder = 0
+        object cbxStratName: TComboBox
+          Left = 8
+          Height = 26
+          Top = 7
+          Width = 150
+          ItemHeight = 0
+          Style = csDropDownList
+          TabOrder = 0
+        end
+        object edtStratUnderlying: TEdit
+          Left = 166
+          Height = 26
+          Top = 7
+          Width = 140
+          TabOrder = 1
+          TextHint = 'Underlying (e.g. NIFTY 50)'
+        end
+        object edtStratLots: TSpinEdit
+          Left = 314
+          Height = 26
+          Top = 7
+          Width = 60
+          MinValue = 1
+          Value = 1
+          TabOrder = 2
+        end
+        object btnStratStart: TButton
+          Left = 382
+          Height = 26
+          Top = 7
+          Width = 60
+          Caption = 'Start'
+          OnClick = btnStratStartClick
+          TabOrder = 3
+        end
+        object btnStratStop: TButton
+          Left = 448
+          Height = 26
+          Top = 7
+          Width = 60
+          Caption = 'Stop'
+          OnClick = btnStratStopClick
+          TabOrder = 4
+        end
+      end
+      object gridStrategies: TStringGrid
+        Left = 0
+        Height = 588
+        Top = 40
+        Width = 952
+        Align = alClient
+        ColCount = 7
+        FixedCols = 0
+        RowCount = 1
+        FixedRows = 1
+        Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRangeSelect, goRowSelect]
+        TabOrder = 1
+      end
+    end
+    object tsSearch: TTabSheet
+      Caption = 'Search'
+      object pnlSearchToolbar: TPanel
+        Left = 0
+        Height = 40
+        Top = 0
+        Width = 952
+        Align = alTop
+        BevelOuter = bvNone
+        TabOrder = 0
+        object edtSearch: TEdit
+          Left = 8
+          Height = 26
+          Top = 7
+          Width = 250
+          TabOrder = 0
+          TextHint = 'Search instruments...'
+        end
+        object cbxSearchExchange: TComboBox
+          Left = 266
+          Height = 26
+          Top = 7
+          Width = 80
+          ItemHeight = 0
+          Items.Strings = (
+            'NSE'
+            'BSE'
+            'NFO'
+            'BFO'
+            'MCX'
+            'CDS'
+          )
+          ItemIndex = 0
+          Style = csDropDownList
+          TabOrder = 1
+        end
+        object btnSearch: TButton
+          Left = 354
+          Height = 26
+          Top = 7
+          Width = 60
+          Caption = 'Search'
+          OnClick = btnSearchClick
+          TabOrder = 2
+        end
+      end
+      object gridSearch: TStringGrid
+        Left = 0
+        Height = 588
+        Top = 40
+        Width = 952
+        Align = alClient
+        ColCount = 7
+        FixedCols = 0
+        RowCount = 1
+        FixedRows = 1
+        Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRangeSelect, goRowSelect]
+        TabOrder = 1
+      end
+    end
+    object tsSettings: TTabSheet
+      Caption = 'Settings'
+      object lblBrokerLabel: TLabel
+        Left = 24
+        Height = 20
+        Top = 24
+        Width = 50
+        Caption = 'Broker'
+      end
+      object cbxBroker: TComboBox
+        Left = 120
+        Height = 26
+        Top = 22
+        Width = 160
+        ItemHeight = 0
+        Items.Strings = (
+          'Upstox'
+          'Kite'
+          'Fyers'
+          'INDmoney'
+          'Dhan'
+        )
+        ItemIndex = 0
+        Style = csDropDownList
+        TabOrder = 0
+      end
+      object lblTokenLabel: TLabel
+        Left = 24
+        Height = 20
+        Top = 64
+        Width = 80
+        Caption = 'Access Token'
+      end
+      object edtToken: TEdit
+        Left = 120
+        Height = 26
+        Top = 62
+        Width = 500
+        EchoMode = emPassword
+        TabOrder = 1
+      end
+      object lblApiKeyLabel: TLabel
+        Left = 24
+        Height = 20
+        Top = 104
+        Width = 55
+        Caption = 'API Key'
+      end
+      object edtApiKey: TEdit
+        Left = 120
+        Height = 26
+        Top = 102
+        Width = 500
+        TabOrder = 2
+      end
+      object chkAutoConnect: TCheckBox
+        Left = 120
+        Height = 22
+        Top = 142
+        Width = 120
+        Caption = 'Auto-connect'
+        TabOrder = 3
+      end
+      object btnSaveSettings: TButton
+        Left = 120
+        Height = 30
+        Top = 178
+        Width = 100
+        Caption = 'Save'
+        OnClick = btnSaveSettingsClick
+        TabOrder = 4
+      end
+      object lblSettingsStatus: TLabel
+        Left = 240
+        Height = 20
+        Top = 183
+        Width = 100
+        Caption = ''
+      end
+    end
+    object tsLog: TTabSheet
+      Caption = 'Log'
+      object memoLog: TMemo
+        Left = 0
+        Height = 592
+        Top = 36
+        Width = 952
+        Align = alClient
+        Font.Name = 'Menlo'
+        Font.Height = -12
+        ParentFont = False
+        ReadOnly = True
+        ScrollBars = ssBoth
+        TabOrder = 0
+      end
+      object btnClearLog: TButton
+        Left = 8
+        Height = 28
+        Top = 4
+        Width = 80
+        Caption = 'Clear'
+        OnClick = btnClearLogClick
+        TabOrder = 1
+      end
+    end
+  end
+  object tmrDrain: TTimer
+    Enabled = False
+    Interval = 50
+    OnTimer = tmrDrainTimer
+    Left = 40
+    Top = 640
+  end
+  object tmrPoll: TTimer
+    Enabled = False
+    Interval = 2000
+    OnTimer = tmrPollTimer
+    Left = 80
+    Top = 640
+  end
+end

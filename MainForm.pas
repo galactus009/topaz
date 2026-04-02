@@ -1,0 +1,865 @@
+{
+  MainForm — Topaz Trading Dashboard (designer-compatible).
+
+  Modern side-nav application. Components are defined in MainForm.lfm
+  and can be edited in the Lazarus visual designer.
+
+  Architecture:
+    Rust callbacks → lock-free ring buffers → GUI timer (50ms)
+    Rust callbacks → lock-free ring buffers → strategy threads
+    Positions/funds → polling timer (2s)
+}
+unit MainForm;
+
+{$mode Delphi}{$H+}
+
+interface
+
+uses
+  Classes, SysUtils, Forms, Controls, Graphics, Dialogs,
+  StdCtrls, ExtCtrls, Grids, Spin, ComCtrls, Generics.Collections,
+  Apollo.Broker, Topaz.EventTypes, Topaz.Strategy;
+
+type
+  TEngineState = (esIdle, esStarting, esConnected, esStopping, esError);
+
+  TRunningBot = record
+    Name: AnsiString;
+    StrategyName: AnsiString;
+    Underlying: AnsiString;
+    Strategy: TStrategy;
+    Thread: TStrategyThread;
+    SlotIndex: Integer;
+    Running: Boolean;
+  end;
+
+  { TfrmDashboard }
+  TfrmDashboard = class(TForm)
+    { ── Side navigation ── }
+    pnlSideNav: TPanel;
+    btnNavDashboard: TButton;
+    btnNavOrders: TButton;
+    btnNavStrategies: TButton;
+    btnNavSearch: TButton;
+    btnNavSettings: TButton;
+    btnNavLog: TButton;
+    lblAppTitle: TLabel;
+
+    { ── Top bar ── }
+    pnlTopBar: TPanel;
+    btnStartEngine: TButton;
+    btnStopEngine: TButton;
+    btnRestartEngine: TButton;
+    shpStatus: TShape;
+    lblStatus: TLabel;
+    lblBrokerInfo: TLabel;
+    lblTickCount: TLabel;
+
+    { ── Page container ── }
+    nbPages: TPageControl;
+    tsDashboard: TTabSheet;
+    tsOrders: TTabSheet;
+    tsStrategies: TTabSheet;
+    tsSearch: TTabSheet;
+    tsSettings: TTabSheet;
+    tsLog: TTabSheet;
+
+    { ── Page: Dashboard ── }
+    pnlDashWatchToolbar: TPanel;
+    edtAddSymbol: TEdit;
+    cbxWatchExchange: TComboBox;
+    btnAddSymbol: TButton;
+    btnRemoveSymbol: TButton;
+    gridWatchlist: TStringGrid;
+    pnlDashBottom: TPanel;
+    gridPositions: TStringGrid;
+    pnlDashFunds: TPanel;
+    lblFundsAvail: TLabel;
+    lblFundsUsed: TLabel;
+    lblFundsBalance: TLabel;
+
+    { ── Page: Orders ── }
+    grpOrderEntry: TGroupBox;
+    edtOrdSymbol: TEdit;
+    cbxOrdExchange: TComboBox;
+    cbxOrdSide: TComboBox;
+    cbxOrdType: TComboBox;
+    cbxOrdProduct: TComboBox;
+    edtOrdQty: TSpinEdit;
+    edtOrdPrice: TEdit;
+    edtOrdTrigger: TEdit;
+    btnPlaceOrder: TButton;
+    lblOrdSymbol: TLabel;
+    lblOrdExchange: TLabel;
+    lblOrdSide: TLabel;
+    lblOrdType: TLabel;
+    lblOrdProduct: TLabel;
+    lblOrdQty: TLabel;
+    lblOrdPrice: TLabel;
+    lblOrdTrigger: TLabel;
+    gridOrders: TStringGrid;
+
+    { ── Page: Strategies ── }
+    pnlStratToolbar: TPanel;
+    cbxStratName: TComboBox;
+    edtStratUnderlying: TEdit;
+    edtStratLots: TSpinEdit;
+    btnStratStart: TButton;
+    btnStratStop: TButton;
+    gridStrategies: TStringGrid;
+
+    { ── Page: Search ── }
+    pnlSearchToolbar: TPanel;
+    edtSearch: TEdit;
+    cbxSearchExchange: TComboBox;
+    btnSearch: TButton;
+    gridSearch: TStringGrid;
+
+    { ── Page: Settings ── }
+    cbxBroker: TComboBox;
+    edtToken: TEdit;
+    edtApiKey: TEdit;
+    chkAutoConnect: TCheckBox;
+    btnSaveSettings: TButton;
+    lblSettingsStatus: TLabel;
+    lblBrokerLabel: TLabel;
+    lblTokenLabel: TLabel;
+    lblApiKeyLabel: TLabel;
+
+    { ── Page: Log ── }
+    memoLog: TMemo;
+    btnClearLog: TButton;
+
+    { ── Timers ── }
+    tmrDrain: TTimer;
+    tmrPoll: TTimer;
+
+    { ── Event handlers ── }
+    procedure FormCreate(Sender: TObject);
+    procedure FormDestroy(Sender: TObject);
+    procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
+    procedure btnNavDashboardClick(Sender: TObject);
+    procedure btnNavOrdersClick(Sender: TObject);
+    procedure btnNavStrategiesClick(Sender: TObject);
+    procedure btnNavSearchClick(Sender: TObject);
+    procedure btnNavSettingsClick(Sender: TObject);
+    procedure btnNavLogClick(Sender: TObject);
+    procedure btnStartEngineClick(Sender: TObject);
+    procedure btnStopEngineClick(Sender: TObject);
+    procedure btnRestartEngineClick(Sender: TObject);
+    procedure btnAddSymbolClick(Sender: TObject);
+    procedure btnRemoveSymbolClick(Sender: TObject);
+    procedure btnPlaceOrderClick(Sender: TObject);
+    procedure btnSearchClick(Sender: TObject);
+    procedure btnSaveSettingsClick(Sender: TObject);
+    procedure btnClearLogClick(Sender: TObject);
+    procedure btnStratStartClick(Sender: TObject);
+    procedure btnStratStopClick(Sender: TObject);
+    procedure tmrDrainTimer(Sender: TObject);
+    procedure tmrPollTimer(Sender: TObject);
+  private
+    FBroker: TBroker;
+    FEventBus: TEventBus;
+    FEngineState: TEngineState;
+    FSymbolRowMap: TDictionary<Integer, Integer>;
+    FPrevLTP: array of Double;
+    FBots: TList<TRunningBot>;
+
+    procedure ShowPage(AIndex: Integer);
+    procedure HighlightNav(ABtn: TButton);
+    procedure SetEngineState(AState: TEngineState);
+    procedure StartEngine;
+    procedure StopEngine;
+    procedure UpdateWatchlistRow(const ATick: TTickEvent);
+    procedure ProcessOrderEvent(const AEvt: TOrderEvent);
+    procedure ProcessStatusEvent(const AEvt: TStatusEvent);
+    procedure Log(const AMsg: AnsiString);
+    procedure LoadSettings;
+    procedure SaveSettings;
+    function ExchangeFromIndex(AIndex: Integer): TExchange;
+    procedure InitGridHeaders(AGrid: TStringGrid;
+      const ACols: array of string; const AWidths: array of Integer);
+    procedure PopulateStrategyCombo;
+  end;
+
+var
+  frmDashboard: TfrmDashboard;
+
+implementation
+
+{$R *.lfm}
+
+uses
+  fpjson, jsonparser;
+
+const
+  PAGE_DASHBOARD  = 0;
+  PAGE_ORDERS     = 1;
+  PAGE_STRATEGIES = 2;
+  PAGE_SEARCH     = 3;
+  PAGE_SETTINGS   = 4;
+  PAGE_LOG        = 5;
+
+{ ═══════════════════════════════════════════════════════════════════ }
+{  Form lifecycle                                                     }
+{ ═══════════════════════════════════════════════════════════════════ }
+
+procedure TfrmDashboard.FormCreate(Sender: TObject);
+begin
+  FEngineState := esIdle;
+  FSymbolRowMap := TDictionary<Integer, Integer>.Create;
+  FBots := TList<TRunningBot>.Create;
+
+  // Init grid headers
+  InitGridHeaders(gridWatchlist,
+    ['Symbol', 'LTP', 'Change', 'Chg%', 'Bid', 'Ask', 'Volume', 'OI'],
+    [110, 80, 70, 60, 80, 80, 90, 80]);
+  InitGridHeaders(gridPositions,
+    ['Symbol', 'Exchange', 'Qty', 'Avg Price', 'LTP', 'P&L'],
+    [110, 70, 60, 90, 80, 90]);
+  InitGridHeaders(gridOrders,
+    ['OrderId', 'Symbol', 'Side', 'Type', 'Qty', 'Price', 'Status'],
+    [120, 100, 50, 60, 50, 80, 80]);
+  InitGridHeaders(gridStrategies,
+    ['Name', 'Strategy', 'Underlying', 'Lots', 'Status', 'P&L', 'Ticks'],
+    [100, 100, 100, 50, 70, 80, 70]);
+  InitGridHeaders(gridSearch,
+    ['Symbol', 'Name', 'Exchange', 'Type', 'Lot', 'Tick', 'Key'],
+    [110, 150, 70, 60, 50, 50, 150]);
+
+  PopulateStrategyCombo;
+  LoadSettings;
+  SetEngineState(esIdle);
+  ShowPage(PAGE_DASHBOARD);
+  HighlightNav(btnNavDashboard);
+end;
+
+procedure TfrmDashboard.FormDestroy(Sender: TObject);
+begin
+  tmrDrain.Enabled := False;
+  tmrPoll.Enabled := False;
+  StopEngine;
+  SaveSettings;
+  FSymbolRowMap.Free;
+  FBots.Free;
+end;
+
+procedure TfrmDashboard.FormCloseQuery(Sender: TObject; var CanClose: Boolean);
+begin
+  if FEngineState = esConnected then
+  begin
+    if MessageDlg('Disconnect and exit?', mtConfirmation, [mbYes, mbNo], 0) = mrYes then
+    begin
+      StopEngine;
+      CanClose := True;
+    end
+    else
+      CanClose := False;
+  end
+  else
+    CanClose := True;
+end;
+
+{ ═══════════════════════════════════════════════════════════════════ }
+{  Navigation                                                         }
+{ ═══════════════════════════════════════════════════════════════════ }
+
+procedure TfrmDashboard.ShowPage(AIndex: Integer);
+begin
+  nbPages.ActivePageIndex := AIndex;
+end;
+
+procedure TfrmDashboard.HighlightNav(ABtn: TButton);
+const
+  CLR_NAV_BG  = $00302020;
+  CLR_NAV_SEL = $00604030;
+var
+  I: Integer;
+begin
+  for I := 0 to pnlSideNav.ControlCount - 1 do
+    if pnlSideNav.Controls[I] is TButton then
+      TButton(pnlSideNav.Controls[I]).Color := CLR_NAV_BG;
+  ABtn.Color := CLR_NAV_SEL;
+end;
+
+procedure TfrmDashboard.btnNavDashboardClick(Sender: TObject);
+begin ShowPage(PAGE_DASHBOARD); HighlightNav(btnNavDashboard); end;
+
+procedure TfrmDashboard.btnNavOrdersClick(Sender: TObject);
+begin ShowPage(PAGE_ORDERS); HighlightNav(btnNavOrders); end;
+
+procedure TfrmDashboard.btnNavStrategiesClick(Sender: TObject);
+begin ShowPage(PAGE_STRATEGIES); HighlightNav(btnNavStrategies); end;
+
+procedure TfrmDashboard.btnNavSearchClick(Sender: TObject);
+begin ShowPage(PAGE_SEARCH); HighlightNav(btnNavSearch); end;
+
+procedure TfrmDashboard.btnNavSettingsClick(Sender: TObject);
+begin ShowPage(PAGE_SETTINGS); HighlightNav(btnNavSettings); end;
+
+procedure TfrmDashboard.btnNavLogClick(Sender: TObject);
+begin ShowPage(PAGE_LOG); HighlightNav(btnNavLog); end;
+
+{ ═══════════════════════════════════════════════════════════════════ }
+{  Engine control                                                     }
+{ ═══════════════════════════════════════════════════════════════════ }
+
+procedure TfrmDashboard.SetEngineState(AState: TEngineState);
+begin
+  FEngineState := AState;
+  case AState of
+    esIdle: begin
+      shpStatus.Brush.Color := clRed; lblStatus.Caption := 'Disconnected';
+      btnStartEngine.Enabled := True; btnStopEngine.Enabled := False;
+      btnRestartEngine.Enabled := False;
+    end;
+    esStarting: begin
+      shpStatus.Brush.Color := clYellow; lblStatus.Caption := 'Connecting...';
+      btnStartEngine.Enabled := False; btnStopEngine.Enabled := False;
+      btnRestartEngine.Enabled := False;
+    end;
+    esConnected: begin
+      shpStatus.Brush.Color := clLime; lblStatus.Caption := 'Connected';
+      btnStartEngine.Enabled := False; btnStopEngine.Enabled := True;
+      btnRestartEngine.Enabled := True;
+    end;
+    esStopping: begin
+      shpStatus.Brush.Color := clYellow; lblStatus.Caption := 'Stopping...';
+      btnStartEngine.Enabled := False; btnStopEngine.Enabled := False;
+      btnRestartEngine.Enabled := False;
+    end;
+    esError: begin
+      shpStatus.Brush.Color := clRed; lblStatus.Caption := 'Error';
+      btnStartEngine.Enabled := True; btnStopEngine.Enabled := False;
+      btnRestartEngine.Enabled := True;
+    end;
+  end;
+end;
+
+procedure TfrmDashboard.btnStartEngineClick(Sender: TObject);
+begin StartEngine; end;
+
+procedure TfrmDashboard.btnStopEngineClick(Sender: TObject);
+begin StopEngine; end;
+
+procedure TfrmDashboard.btnRestartEngineClick(Sender: TObject);
+begin StopEngine; StartEngine; end;
+
+procedure TfrmDashboard.StartEngine;
+var
+  BrokerNames: array[0..4] of AnsiString;
+  BN, TK, AK: AnsiString;
+begin
+  BrokerNames[0] := 'upstox'; BrokerNames[1] := 'kite';
+  BrokerNames[2] := 'fyers'; BrokerNames[3] := 'indmoney';
+  BrokerNames[4] := 'dhan';
+
+  BN := BrokerNames[cbxBroker.ItemIndex];
+  TK := AnsiString(edtToken.Text);
+  AK := AnsiString(edtApiKey.Text);
+
+  if TK = '' then begin Log('ERROR: Access token required'); Exit; end;
+
+  SetEngineState(esStarting);
+  Application.ProcessMessages;
+
+  try
+    FBroker := TBroker.Create(BN, TK, AK);
+    if not FBroker.Connect then
+    begin
+      Log('ERROR: ' + FBroker.LastError);
+      FreeAndNil(FBroker);
+      SetEngineState(esError);
+      Exit;
+    end;
+
+    FEventBus := TEventBus.Create;
+    FBroker.SetCallbacks(@CbTick, @CbDepth, @CbCandle, @CbOrder,
+      @CbConnect, @CbDisconnect, Pointer(FEventBus));
+
+    if not FBroker.StreamStart then
+    begin
+      Log('ERROR: StreamStart failed');
+      FreeAndNil(FEventBus); FBroker.Disconnect; FreeAndNil(FBroker);
+      SetEngineState(esError);
+      Exit;
+    end;
+
+    FBroker.SubscribeOrders;
+    tmrDrain.Enabled := True;
+    tmrPoll.Enabled := True;
+
+    lblBrokerInfo.Caption := Format('%s | %d instruments',
+      [string(FBroker.Name), FBroker.InstrumentCount]);
+    Log(Format('Engine started: %s (%d instruments)',
+      [string(FBroker.Name), FBroker.InstrumentCount]));
+    SetEngineState(esConnected);
+  except
+    on E: Exception do
+    begin
+      Log('ERROR: ' + E.Message);
+      FreeAndNil(FEventBus); FreeAndNil(FBroker);
+      SetEngineState(esError);
+    end;
+  end;
+end;
+
+procedure TfrmDashboard.StopEngine;
+var
+  I: Integer;
+  Bot: TRunningBot;
+begin
+  if FEngineState = esIdle then Exit;
+  SetEngineState(esStopping);
+  Application.ProcessMessages;
+
+  tmrDrain.Enabled := False;
+  tmrPoll.Enabled := False;
+
+  for I := FBots.Count - 1 downto 0 do
+  begin
+    Bot := FBots[I];
+    if Bot.Running and (Bot.Thread <> nil) then
+    begin
+      Bot.Thread.Terminate;
+      Bot.Thread.WaitFor;
+      FreeAndNil(Bot.Thread);
+      FreeAndNil(Bot.Strategy);
+      if (FEventBus <> nil) and (Bot.SlotIndex >= 0) then
+        FEventBus.RemoveStrategySlot(Bot.SlotIndex);
+      Bot.Running := False;
+      FBots[I] := Bot;
+    end;
+  end;
+
+  if FBroker <> nil then
+  begin
+    FBroker.StreamStop;
+    FBroker.Disconnect;
+    FreeAndNil(FBroker);
+  end;
+  FreeAndNil(FEventBus);
+
+  lblBrokerInfo.Caption := '';
+  lblTickCount.Caption := '';
+  Log('Engine stopped');
+  SetEngineState(esIdle);
+end;
+
+{ ═══════════════════════════════════════════════════════════════════ }
+{  Timer: Drain (50ms)                                                }
+{ ═══════════════════════════════════════════════════════════════════ }
+
+procedure TfrmDashboard.tmrDrainTimer(Sender: TObject);
+var
+  Tick: TTickEvent;
+  Order: TOrderEvent;
+  Status: TStatusEvent;
+  N: Integer;
+begin
+  if FEventBus = nil then Exit;
+
+  N := 0;
+  gridWatchlist.BeginUpdate;
+  try
+    while (N < 256) and FEventBus.GuiTicks.TryRead(Tick) do
+    begin
+      UpdateWatchlistRow(Tick);
+      Inc(N);
+    end;
+  finally
+    gridWatchlist.EndUpdate;
+  end;
+
+  while FEventBus.Orders.TryRead(Order) do
+    ProcessOrderEvent(Order);
+
+  while FEventBus.Status.TryRead(Status) do
+    ProcessStatusEvent(Status);
+
+  if FBroker <> nil then
+    lblTickCount.Caption := Format('Ticks: %d', [FBroker.TickCount]);
+end;
+
+procedure TfrmDashboard.UpdateWatchlistRow(const ATick: TTickEvent);
+var
+  Row: Integer;
+  Prev, Change, ChangePct: Double;
+begin
+  if not FSymbolRowMap.TryGetValue(ATick.SymbolId, Row) then Exit;
+  if (Row < 1) or (Row >= gridWatchlist.RowCount) then Exit;
+
+  Prev := 0;
+  if (Row - 1) < Length(FPrevLTP) then Prev := FPrevLTP[Row - 1];
+
+  Change := 0; ChangePct := 0;
+  if Prev > 0 then begin
+    Change := ATick.LTP - Prev;
+    ChangePct := (Change / Prev) * 100;
+  end;
+
+  gridWatchlist.Cells[1, Row] := FormatFloat('0.00', ATick.LTP);
+  gridWatchlist.Cells[2, Row] := FormatFloat('0.00', Change);
+  gridWatchlist.Cells[3, Row] := FormatFloat('0.00', ChangePct) + '%';
+  gridWatchlist.Cells[4, Row] := FormatFloat('0.00', ATick.Bid);
+  gridWatchlist.Cells[5, Row] := FormatFloat('0.00', ATick.Ask);
+  gridWatchlist.Cells[6, Row] := IntToStr(ATick.Volume);
+  gridWatchlist.Cells[7, Row] := IntToStr(ATick.OI);
+
+  if (Row - 1) < Length(FPrevLTP) then FPrevLTP[Row - 1] := ATick.LTP;
+end;
+
+procedure TfrmDashboard.ProcessOrderEvent(const AEvt: TOrderEvent);
+var
+  Row: Integer;
+  S: string;
+begin
+  S := string(PAnsiChar(@AEvt.Json[0]));
+  Row := gridOrders.RowCount;
+  gridOrders.RowCount := Row + 1;
+  gridOrders.Cells[6, Row] := 'Update';
+  Log('Order: ' + AnsiString(Copy(S, 1, 120)));
+end;
+
+procedure TfrmDashboard.ProcessStatusEvent(const AEvt: TStatusEvent);
+begin
+  case AEvt.Kind of
+    0: begin
+      shpStatus.Brush.Color := clLime;
+      lblStatus.Caption := 'Connected';
+      Log('Connected: ' + AnsiString(PAnsiChar(@AEvt.Feed[0])));
+    end;
+    1: begin
+      shpStatus.Brush.Color := clRed;
+      lblStatus.Caption := 'Disconnected';
+      Log('Disconnected: ' + AnsiString(PAnsiChar(@AEvt.Feed[0])));
+    end;
+  end;
+end;
+
+{ ═══════════════════════════════════════════════════════════════════ }
+{  Timer: Poll (2s)                                                   }
+{ ═══════════════════════════════════════════════════════════════════ }
+
+procedure TfrmDashboard.tmrPollTimer(Sender: TObject);
+var
+  Avail, Used: Double;
+  I: Integer;
+  Bot: TRunningBot;
+begin
+  if FBroker = nil then Exit;
+
+  Avail := FBroker.AvailableMargin;
+  Used := FBroker.UsedMargin;
+  lblFundsAvail.Caption := Format('Available: %.0f', [Avail]);
+  lblFundsUsed.Caption := Format('Used: %.0f', [Used]);
+  lblFundsBalance.Caption := Format('Balance: %.0f', [Avail + Used]);
+
+  for I := 0 to FBots.Count - 1 do
+  begin
+    Bot := FBots[I];
+    if Bot.Running and (Bot.Strategy <> nil) and ((I + 1) < gridStrategies.RowCount) then
+    begin
+      gridStrategies.Cells[5, I + 1] := FormatFloat('0.00', Bot.Strategy.PnL);
+      gridStrategies.Cells[6, I + 1] := IntToStr(Bot.Strategy.TickCount);
+    end;
+  end;
+end;
+
+{ ═══════════════════════════════════════════════════════════════════ }
+{  Button handlers                                                    }
+{ ═══════════════════════════════════════════════════════════════════ }
+
+procedure TfrmDashboard.btnAddSymbolClick(Sender: TObject);
+var
+  Sym: AnsiString;
+  Ex: TExchange;
+  SymId, Row: Integer;
+begin
+  if FBroker = nil then begin Log('Engine not running'); Exit; end;
+  Sym := AnsiString(edtAddSymbol.Text);
+  Ex := ExchangeFromIndex(cbxWatchExchange.ItemIndex);
+  if Sym = '' then Exit;
+
+  SymId := FBroker.FindInstrument(Sym, Ex);
+  if SymId < 0 then begin Log('Not found: ' + Sym); Exit; end;
+  if FSymbolRowMap.ContainsKey(SymId) then begin Log('Already watching'); Exit; end;
+
+  FBroker.Subscribe(Sym, Ex, smQuote);
+  Row := gridWatchlist.RowCount;
+  gridWatchlist.RowCount := Row + 1;
+  gridWatchlist.Cells[0, Row] := string(Sym);
+  FSymbolRowMap.Add(SymId, Row);
+  SetLength(FPrevLTP, Row);
+  FPrevLTP[Row - 1] := 0;
+  Log(Format('Subscribed: %s → %d', [string(Sym), SymId]));
+  edtAddSymbol.Text := '';
+end;
+
+procedure TfrmDashboard.btnRemoveSymbolClick(Sender: TObject);
+var
+  Row: Integer;
+  Sym: AnsiString;
+begin
+  if FBroker = nil then Exit;
+  Row := gridWatchlist.Row;
+  if Row < 1 then Exit;
+  Sym := AnsiString(gridWatchlist.Cells[0, Row]);
+  FBroker.Unsubscribe(Sym, exNSE);
+  gridWatchlist.DeleteRow(Row);
+  FSymbolRowMap.Clear;
+  Log('Unsubscribed: ' + Sym);
+end;
+
+procedure TfrmDashboard.btnPlaceOrderClick(Sender: TObject);
+var
+  Sym, OrderId: AnsiString;
+  Row: Integer;
+begin
+  if FBroker = nil then begin Log('Engine not running'); Exit; end;
+  Sym := AnsiString(edtOrdSymbol.Text);
+  if Sym = '' then Exit;
+
+  try
+    OrderId := FBroker.PlaceOrder(Sym,
+      ExchangeFromIndex(cbxOrdExchange.ItemIndex),
+      TSide(cbxOrdSide.ItemIndex),
+      TOrderKind(cbxOrdType.ItemIndex),
+      TProductType(cbxOrdProduct.ItemIndex),
+      vDay, edtOrdQty.Value,
+      StrToFloatDef(edtOrdPrice.Text, 0),
+      StrToFloatDef(edtOrdTrigger.Text, 0));
+    Row := gridOrders.RowCount;
+    gridOrders.RowCount := Row + 1;
+    gridOrders.Cells[0, Row] := string(OrderId);
+    gridOrders.Cells[1, Row] := string(Sym);
+    gridOrders.Cells[2, Row] := cbxOrdSide.Text;
+    gridOrders.Cells[3, Row] := cbxOrdType.Text;
+    gridOrders.Cells[4, Row] := IntToStr(edtOrdQty.Value);
+    gridOrders.Cells[5, Row] := edtOrdPrice.Text;
+    gridOrders.Cells[6, Row] := 'Pending';
+    Log('Order placed: ' + OrderId);
+  except
+    on E: Exception do Log('Order failed: ' + AnsiString(E.Message));
+  end;
+end;
+
+procedure TfrmDashboard.btnSearchClick(Sender: TObject);
+var
+  Q, R: AnsiString;
+  JArr: TJSONArray;
+  JObj: TJSONObject;
+  I, Row: Integer;
+begin
+  if FBroker = nil then begin Log('Engine not running'); Exit; end;
+  Q := AnsiString(edtSearch.Text);
+  if Q = '' then Exit;
+
+  R := FBroker.SearchJson(Q, ExchangeFromIndex(cbxSearchExchange.ItemIndex), 30);
+  if R = '' then begin Log('No results'); Exit; end;
+
+  try
+    JArr := GetJSON(string(R)) as TJSONArray;
+    try
+      gridSearch.RowCount := 1;
+      for I := 0 to JArr.Count - 1 do
+      begin
+        JObj := JArr.Objects[I];
+        Row := gridSearch.RowCount;
+        gridSearch.RowCount := Row + 1;
+        gridSearch.Cells[0, Row] := JObj.Get('symbol', '');
+        gridSearch.Cells[1, Row] := JObj.Get('name', '');
+        gridSearch.Cells[2, Row] := JObj.Get('exchange', '');
+        gridSearch.Cells[3, Row] := JObj.Get('type', '');
+        gridSearch.Cells[4, Row] := IntToStr(JObj.Get('lot_size', 1));
+        gridSearch.Cells[5, Row] := FloatToStr(JObj.Get('tick_size', 0.05));
+        gridSearch.Cells[6, Row] := JObj.Get('key', '');
+      end;
+      Log(Format('Search: %d results', [gridSearch.RowCount - 1]));
+    finally
+      JArr.Free;
+    end;
+  except
+    on E: Exception do Log('Search error: ' + AnsiString(E.Message));
+  end;
+end;
+
+procedure TfrmDashboard.btnSaveSettingsClick(Sender: TObject);
+begin
+  SaveSettings;
+  lblSettingsStatus.Caption := 'Saved';
+end;
+
+procedure TfrmDashboard.btnClearLogClick(Sender: TObject);
+begin
+  memoLog.Lines.Clear;
+end;
+
+procedure TfrmDashboard.btnStratStartClick(Sender: TObject);
+var
+  Regs: TArray<TStrategyRegistration>;
+  Bot: TRunningBot;
+  Idx, SlotIdx, Row: Integer;
+begin
+  if FBroker = nil then begin Log('Engine not running'); Exit; end;
+  if cbxStratName.ItemIndex < 0 then Exit;
+
+  Regs := GetRegisteredStrategies;
+  Idx := cbxStratName.ItemIndex;
+  if Idx > High(Regs) then Exit;
+
+  SlotIdx := FEventBus.AddStrategySlot;
+  if SlotIdx < 0 then begin Log('Max strategy slots reached'); Exit; end;
+
+  Bot.Name := AnsiString(Format('bot-%d', [FBots.Count + 1]));
+  Bot.StrategyName := Regs[Idx].Name;
+  Bot.Underlying := AnsiString(edtStratUnderlying.Text);
+  Bot.Strategy := Regs[Idx].StrategyClass.Create;
+  Bot.Strategy.Name := Bot.Name;
+  Bot.Strategy.Underlying := Bot.Underlying;
+  Bot.Strategy.Lots := edtStratLots.Value;
+  Bot.Strategy.Broker := FBroker;
+  Bot.SlotIndex := SlotIdx;
+
+  FBroker.Subscribe(Bot.Underlying, exNSE, smQuote);
+
+  Bot.Thread := TStrategyThread.Create(Bot.Strategy,
+    FEventBus.StrategySlots[SlotIdx].Ticks);
+  Bot.Running := True;
+  Bot.Thread.Start;
+  FBots.Add(Bot);
+
+  Row := gridStrategies.RowCount;
+  gridStrategies.RowCount := Row + 1;
+  gridStrategies.Cells[0, Row] := string(Bot.Name);
+  gridStrategies.Cells[1, Row] := string(Bot.StrategyName);
+  gridStrategies.Cells[2, Row] := string(Bot.Underlying);
+  gridStrategies.Cells[3, Row] := IntToStr(Bot.Strategy.Lots);
+  gridStrategies.Cells[4, Row] := 'Running';
+
+  Log(Format('Started: %s (%s on %s)', [string(Bot.Name),
+    string(Bot.StrategyName), string(Bot.Underlying)]));
+end;
+
+procedure TfrmDashboard.btnStratStopClick(Sender: TObject);
+var
+  Row, Idx: Integer;
+  Bot: TRunningBot;
+begin
+  Row := gridStrategies.Row;
+  if Row < 1 then Exit;
+  Idx := Row - 1;
+  if Idx >= FBots.Count then Exit;
+  Bot := FBots[Idx];
+  if not Bot.Running then Exit;
+
+  Bot.Thread.Terminate;
+  Bot.Thread.WaitFor;
+  FreeAndNil(Bot.Thread);
+  FreeAndNil(Bot.Strategy);
+  if FEventBus <> nil then
+    FEventBus.RemoveStrategySlot(Bot.SlotIndex);
+  Bot.Running := False;
+  FBots[Idx] := Bot;
+  gridStrategies.Cells[4, Row] := 'Stopped';
+  Log('Stopped: ' + string(Bot.Name));
+end;
+
+{ ═══════════════════════════════════════════════════════════════════ }
+{  Helpers                                                            }
+{ ═══════════════════════════════════════════════════════════════════ }
+
+procedure TfrmDashboard.Log(const AMsg: AnsiString);
+begin
+  memoLog.Lines.Add(FormatDateTime('hh:nn:ss', Now) + ' ' + string(AMsg));
+  while memoLog.Lines.Count > 1000 do memoLog.Lines.Delete(0);
+end;
+
+function TfrmDashboard.ExchangeFromIndex(AIndex: Integer): TExchange;
+begin
+  Result := TExchange(AIndex);
+end;
+
+procedure TfrmDashboard.InitGridHeaders(AGrid: TStringGrid;
+  const ACols: array of string; const AWidths: array of Integer);
+var
+  I: Integer;
+begin
+  AGrid.ColCount := Length(ACols);
+  AGrid.FixedRows := 1;
+  AGrid.RowCount := 1;
+  AGrid.Options := AGrid.Options + [goRowSelect] - [goEditing];
+  for I := 0 to High(ACols) do
+  begin
+    AGrid.Cells[I, 0] := ACols[I];
+    if I <= High(AWidths) then AGrid.ColWidths[I] := AWidths[I];
+  end;
+end;
+
+procedure TfrmDashboard.PopulateStrategyCombo;
+var
+  Regs: TArray<TStrategyRegistration>;
+  I: Integer;
+begin
+  Regs := GetRegisteredStrategies;
+  cbxStratName.Items.Clear;
+  for I := 0 to High(Regs) do
+    cbxStratName.Items.Add(string(Regs[I].Name));
+  if cbxStratName.Items.Count > 0 then
+    cbxStratName.ItemIndex := 0;
+end;
+
+function SettingsPath: string;
+begin
+  Result := ExtractFilePath(ParamStr(0)) + 'config' + PathDelim + 'settings.ini';
+end;
+
+procedure TfrmDashboard.LoadSettings;
+var
+  F: TextFile;
+  Line, Key, Val: string;
+  P: Integer;
+begin
+  if not FileExists(SettingsPath) then Exit;
+  AssignFile(F, SettingsPath);
+  try
+    Reset(F);
+    while not Eof(F) do
+    begin
+      ReadLn(F, Line);
+      P := Pos('=', Line);
+      if P > 0 then
+      begin
+        Key := Trim(Copy(Line, 1, P - 1));
+        Val := Trim(Copy(Line, P + 1, MaxInt));
+        if Key = 'broker' then cbxBroker.ItemIndex := cbxBroker.Items.IndexOf(Val);
+        if Key = 'token' then edtToken.Text := Val;
+        if Key = 'api_key' then edtApiKey.Text := Val;
+        if Key = 'auto_connect' then chkAutoConnect.Checked := (Val = '1');
+      end;
+    end;
+    CloseFile(F);
+  except
+  end;
+end;
+
+procedure TfrmDashboard.SaveSettings;
+var
+  F: TextFile;
+begin
+  ForceDirectories(ExtractFilePath(SettingsPath));
+  AssignFile(F, SettingsPath);
+  try
+    Rewrite(F);
+    WriteLn(F, 'broker=' + cbxBroker.Text);
+    WriteLn(F, 'token=' + edtToken.Text);
+    WriteLn(F, 'api_key=' + edtApiKey.Text);
+    if chkAutoConnect.Checked then WriteLn(F, 'auto_connect=1')
+    else WriteLn(F, 'auto_connect=0');
+    CloseFile(F);
+  except
+    on E: Exception do Log('Save failed: ' + AnsiString(E.Message));
+  end;
+end;
+
+end.

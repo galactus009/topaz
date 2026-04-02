@@ -1,0 +1,22 @@
+# FPC/Lazarus build artifacts
+lib/
+*.o
+*.ppu
+*.res
+*.compiled
+*.lps
+linkfiles*.res
+symbol_order*.fpc
+
+# Binary
+TopazDashboard
+TopazDashboard.app/
+
+# Static lib symlink
+libapollo.a
+
+# Config (contains tokens)
+config/
+
+# Backup
+backup/
