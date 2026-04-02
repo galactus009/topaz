@@ -20,3 +20,14 @@ config/
 
 # Backup
 backup/
+
+# Delphi build artifacts
+bin/
+lib/dcu/
+*.dcu
+*.dres
+*.local
+*.identcache
+*.stat
+__history/
+__recovery/

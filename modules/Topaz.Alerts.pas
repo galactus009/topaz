@@ -29,7 +29,7 @@ unit Topaz.Alerts;
 interface
 
 uses
-  SysUtils, Classes, Process;
+  SysUtils, Classes{$IFDEF FPC}, Process{$ENDIF};
 
 type
   TAlertLevel = (alInfo, alWarning, alCritical);

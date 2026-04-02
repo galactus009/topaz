@@ -37,7 +37,7 @@ unit XGBoost.Wrapper;
 interface
 
 uses
-  SysUtils, DynLibs;
+  SysUtils, {$IFDEF FPC}DynLibs{$ELSE}Winapi.Windows{$ENDIF};
 
 type
   TSingleArray = array of Single;

@@ -38,7 +38,9 @@ unit Topaz.ConfigLoader;
 interface
 
 uses
-  SysUtils, Classes, fpjson, jsonparser, Topaz.Strategy;
+  SysUtils, Classes,
+  {$IFDEF FPC}fpjson, jsonparser,{$ELSE}System.JSON,{$ENDIF}
+  Topaz.Strategy;
 
 type
   { ── Single parameter key-value pair ── }

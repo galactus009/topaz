@@ -17,8 +17,9 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs,
-  StdCtrls, ExtCtrls, Grids, Spin, ComCtrls, Menus, Generics.Collections,
-  LCLType,
+  StdCtrls, ExtCtrls, Grids, {$IFDEF FPC}Spin,{$ELSE}Vcl.Samples.Spin,{$ENDIF}
+  ComCtrls, Menus, Generics.Collections,
+  {$IFDEF FPC}LCLType,{$ELSE}Winapi.Windows,{$ENDIF}
   Apollo.Broker, Topaz.EventTypes, Topaz.Strategy, Topaz.Risk,
   Topaz.State, Topaz.Reconciler, Topaz.Session, BotWizard,
   Topaz.IVAnalysis, Topaz.BlackScholes, Topaz.Alerts,
@@ -308,10 +309,11 @@ var
 
 implementation
 
-{$R *.lfm}
+{$IFDEF FPC}{$R *.lfm}{$ELSE}{$R *.dfm}{$ENDIF}
 
 uses
-  fpjson, jsonparser, StrUtils, DateUtils, Math;
+  {$IFDEF FPC}fpjson, jsonparser,{$ELSE}System.JSON,{$ENDIF}
+  StrUtils, DateUtils, Math;
 
 const
   PAGE_DASHBOARD  = 0;

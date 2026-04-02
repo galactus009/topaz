@@ -51,7 +51,7 @@ var
 
 implementation
 
-{$R *.lfm}
+{$IFDEF FPC}{$R *.lfm}{$ELSE}{$R *.dfm}{$ENDIF}
 
 procedure TfrmBotWizard.FormCreate(Sender: TObject);
 begin
