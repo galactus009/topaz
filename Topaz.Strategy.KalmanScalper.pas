@@ -88,7 +88,7 @@ const
 constructor TKalmanScalper.Create;
 begin
   inherited Create;
-  FModelPath := 'signal_kalman.json';
+  FModelPath := '';  // auto-derived in OnStart
   FEntryThreshold := 0.60;
   FExitThreshold := 0.40;
   FCooldownTicks := 15;
@@ -114,6 +114,9 @@ begin
   FPrevVolume := 0;
   FWarmup := 30;
   FTicksSinceOrder := FCooldownTicks;
+
+  if FModelPath = '' then
+    FModelPath := ModelFilePath('kalmanscalper', Underlying);
 
   FillChar(Zeros, SizeOf(Zeros), 0);
   FModelDM := TDMatrix.Create(Zeros, 1, NUM_FEATURES);

@@ -6,11 +6,11 @@
   price movement, trains an XGBoost model, and saves it.
 
   CSV format: timestamp,ltp,bid,ask,volume
-  Output: signal_model.json
+  Output: models/<strategy>_<symbol>.json
 
   Usage:
     fpc -Mdelphi -Fu../modules TrainModel.pas
-    ./TrainModel history.csv
+    ./TrainModel mlstrategy nifty50 history.csv
 }
 program TrainModel;
 
@@ -195,8 +195,9 @@ begin
           Inc(Correct);
       WriteLn(Format('In-sample accuracy: %.1f%%', [Correct / SampleCount * 100]));
 
-      Model.SaveModel('signal_model.json');
-      WriteLn('Model saved to signal_model.json');
+      ForceDirectories('models');
+      Model.SaveModel('models/' + ParamStr(1) + '_' + ParamStr(2) + '.json');
+      WriteLn('Model saved to models/' + ParamStr(1) + '_' + ParamStr(2) + '.json');
     finally
       Model.Free;
     end;
@@ -206,13 +207,14 @@ begin
 end;
 
 begin
-  if ParamCount < 1 then
+  if ParamCount < 3 then
   begin
-    WriteLn('Usage: TrainModel <ticks.csv>');
-    WriteLn('CSV format: timestamp,ltp,bid,ask,volume');
+    WriteLn('Usage: TrainModel <strategy> <symbol> <ticks.csv>');
+    WriteLn('  e.g. TrainModel mlstrategy nifty50 history.csv');
+    WriteLn('  Output: models/mlstrategy_nifty50.json');
     Halt(1);
   end;
 
-  LoadCSV(ParamStr(1));
+  LoadCSV(ParamStr(3));
   Run;
 end.

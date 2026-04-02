@@ -72,6 +72,10 @@ type
 procedure RegisterStrategy(const AName: AnsiString; AClass: TStrategyClass);
 function GetRegisteredStrategies: TArray<TStrategyRegistration>;
 
+{ Model file path convention: models/<strategy>_<symbol>.json
+  e.g. models/mlstrategy_nifty50.json, models/kalmanscalper_banknifty.json }
+function ModelFilePath(const AStrategy, AUnderlying: AnsiString): AnsiString;
+
 implementation
 
 var
@@ -92,6 +96,20 @@ end;
 function GetRegisteredStrategies: TArray<TStrategyRegistration>;
 begin
   Result := GRegistry;
+end;
+
+function ModelFilePath(const AStrategy, AUnderlying: AnsiString): AnsiString;
+var
+  SafeName: AnsiString;
+  I: Integer;
+begin
+  // Sanitize symbol: 'NIFTY 50' → 'nifty50', 'BANK NIFTY' → 'banknifty'
+  SafeName := LowerCase(AUnderlying);
+  Result := '';
+  for I := 1 to Length(SafeName) do
+    if SafeName[I] in ['a'..'z', '0'..'9'] then
+      Result := Result + SafeName[I];
+  Result := 'models' + PathDelim + LowerCase(AStrategy) + '_' + Result + '.json';
 end;
 
 { TStrategy }

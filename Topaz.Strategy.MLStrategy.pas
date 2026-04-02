@@ -75,7 +75,7 @@ const
 constructor TMLStrategy.Create;
 begin
   inherited Create;
-  FModelPath := 'signal_model.json';
+  FModelPath := '';  // auto-derived in OnStart
   FThresholdBuy := 0.65;
   FThresholdSell := 0.35;
   FCooldown := DEFAULT_COOLDOWN;
@@ -96,6 +96,9 @@ begin
   FEMA50.Init(50);
   FROC.Init(12);
   FStoch.Init(14, 3);
+
+  if FModelPath = '' then
+    FModelPath := ModelFilePath('mlstrategy', Underlying);
 
   FillChar(Zeros, SizeOf(Zeros), 0);
   FModelDM := TDMatrix.Create(Zeros, 1, NUM_FEATURES);
