@@ -7,9 +7,11 @@ object frmDashboard: TfrmDashboard
   ClientHeight = 900
   ClientWidth = 1400
   Color = clForm
+  KeyPreview = True
   OnCreate = FormCreate
   OnDestroy = FormDestroy
   OnCloseQuery = FormCloseQuery
+  OnKeyDown = FormKeyDown
   Position = poScreenCenter
   WindowState = wsMaximized
   object pnlStatusBar: TPanel
@@ -383,6 +385,13 @@ object frmDashboard: TfrmDashboard
             Top = 10
             Width = 160
             Caption = 'Balance: --'
+          end
+          object lblNetPosition: TLabel
+            Left = 580
+            Height = 20
+            Top = 10
+            Width = 160
+            Caption = 'Net: FLAT'
           end
         end
       end

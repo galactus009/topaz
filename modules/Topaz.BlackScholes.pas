@@ -22,6 +22,12 @@ type
     Rho:   Double;
   end;
 
+  TOptionLeg = record
+    Spot, Strike, TTE, IV, RFR: Double;
+    IsCall: Boolean;
+    Qty: Integer;  // positive=long, negative=short
+  end;
+
   TBlackScholes = record
   private
     class function NormPDF(X: Double): Double; static; inline;
@@ -37,6 +43,13 @@ type
         IsCall   - True for call, False for put }
     class function Calculate(Spot, Strike, TTE, IV, RFR, DivYield: Double;
       IsCall: Boolean): TGreeks; static;
+
+    { Find the strike nearest to a target delta from a list of strikes }
+    class function FindStrikeByDelta(ASpot: Double; const AStrikes: array of Double;
+      ATTE, AIV, ARFR: Double; ATargetDelta: Double; AIsCall: Boolean): Double; static;
+
+    { Compute portfolio delta for multiple option legs }
+    class function PortfolioDelta(const ALegs: array of TOptionLeg): Double; static;
   end;
 
 implementation
@@ -132,6 +145,49 @@ begin
                      - DivYield * Spot * DiscountDiv * Nd1) / DAYS_PER_YEAR;
     Result.Vega  := Spot * DiscountDiv * Pd1 * SqrtT / 100.0;
     Result.Rho   := -Strike * TTE * DiscountRFR * Nd2 / 100.0;
+  end;
+end;
+
+{ ── FindStrikeByDelta ── }
+
+class function TBlackScholes.FindStrikeByDelta(ASpot: Double;
+  const AStrikes: array of Double; ATTE, AIV, ARFR: Double;
+  ATargetDelta: Double; AIsCall: Boolean): Double;
+var
+  I: Integer;
+  G: TGreeks;
+  BestDist, Dist: Double;
+begin
+  Result := 0;
+  if Length(AStrikes) = 0 then
+    Exit;
+
+  BestDist := MaxDouble;
+  for I := 0 to High(AStrikes) do
+  begin
+    G := Calculate(ASpot, AStrikes[I], ATTE, AIV, ARFR, 0.0, AIsCall);
+    Dist := Abs(G.Delta - ATargetDelta);
+    if Dist < BestDist then
+    begin
+      BestDist := Dist;
+      Result := AStrikes[I];
+    end;
+  end;
+end;
+
+{ ── PortfolioDelta ── }
+
+class function TBlackScholes.PortfolioDelta(const ALegs: array of TOptionLeg): Double;
+var
+  I: Integer;
+  G: TGreeks;
+begin
+  Result := 0;
+  for I := 0 to High(ALegs) do
+  begin
+    G := Calculate(ALegs[I].Spot, ALegs[I].Strike, ALegs[I].TTE,
+      ALegs[I].IV, ALegs[I].RFR, 0.0, ALegs[I].IsCall);
+    Result := Result + ALegs[I].Qty * G.Delta;
   end;
 end;
 

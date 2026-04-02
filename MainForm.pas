@@ -18,6 +18,7 @@ interface
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs,
   StdCtrls, ExtCtrls, Grids, Spin, ComCtrls, Menus, Generics.Collections,
+  LCLType,
   Apollo.Broker, Topaz.EventTypes, Topaz.Strategy, Topaz.Risk,
   Topaz.State, Topaz.Reconciler, Topaz.Session, BotWizard;
 
@@ -84,6 +85,7 @@ type
     lblFundsAvail: TLabel;
     lblFundsUsed: TLabel;
     lblFundsBalance: TLabel;
+    lblNetPosition: TLabel;
 
     { ── Page: Orders ── }
     grpOrderEntry: TGroupBox;
@@ -214,6 +216,7 @@ type
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
+    procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure btnNavDashboardClick(Sender: TObject);
     procedure btnNavOrdersClick(Sender: TObject);
     procedure btnNavStrategiesClick(Sender: TObject);
@@ -381,6 +384,23 @@ begin
   end
   else
     CanClose := True;
+end;
+
+procedure TfrmDashboard.FormKeyDown(Sender: TObject; var Key: Word;
+  Shift: TShiftState);
+begin
+  case Key of
+    VK_F5: if btnStartEngine.Enabled then btnStartEngineClick(nil);
+    VK_F6: if btnStopEngine.Enabled then btnStopEngineClick(nil);
+    VK_ESCAPE: if FEngineState = esConnected then btnFlattenAllClick(nil);
+    VK_F1: begin ShowPage(PAGE_DASHBOARD); HighlightNav(btnNavDashboard); end;
+    VK_F2: begin ShowPage(PAGE_ORDERS); HighlightNav(btnNavOrders); end;
+    VK_F3: begin ShowPage(PAGE_STRATEGIES); HighlightNav(btnNavStrategies); end;
+    VK_F4: begin ShowPage(PAGE_SEARCH); HighlightNav(btnNavSearch); end;
+    VK_F7: begin ShowPage(PAGE_SETTINGS); HighlightNav(btnNavSettings); end;
+    VK_F8: begin ShowPage(PAGE_LOG); HighlightNav(btnNavLog); end;
+    VK_F9: begin ShowPage(PAGE_HEALTH); HighlightNav(btnNavHealth); end;
+  end;
 end;
 
 { ═══════════════════════════════════════════════════════════════════ }
@@ -703,8 +723,16 @@ begin
     ChangePct := (Change / Prev) * 100;
   end;
 
-  gridWatchlist.Cells[1, Row] := FormatFloat('0.00', ATick.LTP);
-  gridWatchlist.Cells[2, Row] := FormatFloat('0.00', Change);
+  if ATick.LTP > Prev then
+    gridWatchlist.Cells[1, Row] := #$E2#$96#$B2 + ' ' + FormatFloat('0.00', ATick.LTP)
+  else if ATick.LTP < Prev then
+    gridWatchlist.Cells[1, Row] := #$E2#$96#$BC + ' ' + FormatFloat('0.00', ATick.LTP)
+  else
+    gridWatchlist.Cells[1, Row] := '  ' + FormatFloat('0.00', ATick.LTP);
+  if Change > 0 then
+    gridWatchlist.Cells[2, Row] := '+' + FormatFloat('0.00', Change)
+  else
+    gridWatchlist.Cells[2, Row] := FormatFloat('0.00', Change);
   gridWatchlist.Cells[3, Row] := FormatFloat('0.00', ChangePct) + '%';
   gridWatchlist.Cells[4, Row] := FormatFloat('0.00', ATick.Bid);
   gridWatchlist.Cells[5, Row] := FormatFloat('0.00', ATick.Ask);
@@ -828,6 +856,11 @@ begin
   lblFundsAvail.Caption := Format('Available: %.0f', [Avail]);
   lblFundsUsed.Caption := Format('Used: %.0f', [Used]);
   lblFundsBalance.Caption := Format('Balance: %.0f', [Avail + Used]);
+
+  if gridPositions.RowCount <= 1 then
+    lblNetPosition.Caption := 'Net: FLAT'
+  else
+    lblNetPosition.Caption := Format('Net: %d positions', [gridPositions.RowCount - 1]);
 
   for I := 0 to FBots.Count - 1 do
   begin

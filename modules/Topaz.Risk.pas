@@ -20,7 +20,7 @@ unit Topaz.Risk;
 interface
 
 uses
-  SysUtils, DateUtils, Generics.Collections;
+  SysUtils, DateUtils, Classes, Generics.Collections;
 
 type
   TRiskRule = (
@@ -30,7 +30,11 @@ type
     rrSymbolExposure,    // Max per-symbol position
     rrOrderRate,         // Orders per second throttle
     rrMaxOpenOrders,     // Max concurrent open orders
-    rrMarginCheck        // Available margin check
+    rrMarginCheck,       // Available margin check
+    rrMaxTradesPerDay,   // Max trades per day
+    rrMaxLossPerTrade,   // Max loss per single trade
+    rrFrozenSymbol,      // Symbol is frozen
+    rrVIXCeiling         // VIX ceiling breached
   );
 
   TRiskViolation = record
@@ -49,6 +53,13 @@ type
     FMaxOrdersPerSec: Integer;
     FMaxOpenOrders: Integer;
     FMinMargin: Double;
+    FMaxTradesPerDay: Integer;
+    FTradesToday: Integer;
+    FMaxLossPerTrade: Double;
+    FMinMarginPct: Double;
+    FVIXCeiling: Double;
+    FCurrentVIX: Double;
+    FFrozenSymbols: TStringList;
 
     FDailyPnL: Double;
     FKillSwitchTripped: Boolean;
@@ -95,10 +106,21 @@ type
     property MaxOrdersPerSec: Integer read FMaxOrdersPerSec write FMaxOrdersPerSec;
     property MaxOpenOrders: Integer read FMaxOpenOrders write FMaxOpenOrders;
     property MinMargin: Double read FMinMargin write FMinMargin;
+    property MaxTradesPerDay: Integer read FMaxTradesPerDay write FMaxTradesPerDay;
+    property MaxLossPerTrade: Double read FMaxLossPerTrade write FMaxLossPerTrade;
+    property MinMarginPct: Double read FMinMarginPct write FMinMarginPct;
+    property VIXCeiling: Double read FVIXCeiling write FVIXCeiling;
+    property TradesToday: Integer read FTradesToday;
     property KillSwitchTripped: Boolean read FKillSwitchTripped;
     property DailyPnL: Double read FDailyPnL;
     property OpenOrderCount: Integer read FOpenOrderCount;
     property Exposure: Double read TotalExposure;
+
+    procedure UpdateVIX(AVIX: Double);
+    procedure FreezeSymbol(const ASymbol: AnsiString);
+    procedure UnfreezeSymbol(const ASymbol: AnsiString);
+    function IsSymbolFrozen(const ASymbol: AnsiString): Boolean;
+    procedure IncrementTrades;
   end;
 
 implementation
@@ -121,6 +143,16 @@ begin
   FMaxOrdersPerSec   := 5;
   FMaxOpenOrders     := 20;
   FMinMargin         := 10000;
+  FMaxTradesPerDay   := 50;
+  FTradesToday       := 0;
+  FMaxLossPerTrade   := 5000;
+  FMinMarginPct      := 10.0;
+  FVIXCeiling        := 0;
+  FCurrentVIX        := 0;
+
+  FFrozenSymbols := TStringList.Create;
+  FFrozenSymbols.Sorted := True;
+  FFrozenSymbols.Duplicates := dupIgnore;
 
   FPositions   := TDictionary<AnsiString, Double>.Create;
   FStrategyPnL := TDictionary<AnsiString, Double>.Create;
@@ -130,6 +162,7 @@ end;
 
 destructor TRiskManager.Destroy;
 begin
+  FFrozenSymbols.Free;
   FViolations.Free;
   FStrategyPnL.Free;
   FPositions.Free;
@@ -274,6 +307,45 @@ begin
     Exit(False);
   end;
 
+  // 8. Max trades per day
+  if FTradesToday >= FMaxTradesPerDay then
+  begin
+    AddViolation(rrMaxTradesPerDay,
+      Format('Max trades per day reached (Trades=%d, Limit=%d)',
+        [FTradesToday, FMaxTradesPerDay]),
+      FTradesToday, FMaxTradesPerDay);
+    Exit(False);
+  end;
+
+  // 9. Max loss per trade (approximate)
+  if APrice * AQty > FMaxLossPerTrade then
+  begin
+    AddViolation(rrMaxLossPerTrade,
+      Format('Trade value exceeds max loss per trade (Value=%.2f, Limit=%.2f)',
+        [APrice * AQty, FMaxLossPerTrade]),
+      APrice * AQty, FMaxLossPerTrade);
+    Exit(False);
+  end;
+
+  // 10. Frozen symbol
+  if IsSymbolFrozen(ASymbol) then
+  begin
+    AddViolation(rrFrozenSymbol,
+      Format('Symbol "%s" is frozen — no new orders allowed', [ASymbol]),
+      0, 0);
+    Exit(False);
+  end;
+
+  // 11. VIX ceiling
+  if (FVIXCeiling > 0) and (FCurrentVIX > FVIXCeiling) then
+  begin
+    AddViolation(rrVIXCeiling,
+      Format('VIX ceiling breached (VIX=%.2f, Ceiling=%.2f)',
+        [FCurrentVIX, FVIXCeiling]),
+      FCurrentVIX, FVIXCeiling);
+    Exit(False);
+  end;
+
   // Passed all checks — record the timestamp
   SetLength(FOrderTimestamps, Length(FOrderTimestamps) + 1);
   FOrderTimestamps[High(FOrderTimestamps)] := Now;
@@ -321,6 +393,7 @@ begin
   FDailyPnL := 0;
   FKillSwitchTripped := False;
   FOpenOrderCount := 0;
+  FTradesToday := 0;
   FPositions.Clear;
   FStrategyPnL.Clear;
   FViolations.Clear;
@@ -343,6 +416,35 @@ end;
 function TRiskManager.ViolationCount: Integer;
 begin
   Result := FViolations.Count;
+end;
+
+procedure TRiskManager.UpdateVIX(AVIX: Double);
+begin
+  FCurrentVIX := AVIX;
+end;
+
+procedure TRiskManager.FreezeSymbol(const ASymbol: AnsiString);
+begin
+  FFrozenSymbols.Add(ASymbol);
+end;
+
+procedure TRiskManager.UnfreezeSymbol(const ASymbol: AnsiString);
+var
+  Idx: Integer;
+begin
+  Idx := FFrozenSymbols.IndexOf(ASymbol);
+  if Idx >= 0 then
+    FFrozenSymbols.Delete(Idx);
+end;
+
+function TRiskManager.IsSymbolFrozen(const ASymbol: AnsiString): Boolean;
+begin
+  Result := FFrozenSymbols.IndexOf(ASymbol) >= 0;
+end;
+
+procedure TRiskManager.IncrementTrades;
+begin
+  Inc(FTradesToday);
 end;
 
 end.

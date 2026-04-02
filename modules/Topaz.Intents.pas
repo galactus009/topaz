@@ -32,7 +32,7 @@ uses
   SysUtils, Math, Generics.Collections, Apollo.Broker, Topaz.Risk;
 
 type
-  TIntentKind = (ikEntry, ikExit, ikReduce, ikFlatten, ikBracket);
+  TIntentKind = (ikEntry, ikExit, ikReduce, ikFlatten, ikBracket, ikMultiLeg);
 
   TIntent = record
     Id: Integer;
@@ -46,6 +46,12 @@ type
     TargetPrice: Double;     // for bracket TP leg
     Tag: AnsiString;         // strategy name
     ReducePct: Double;       // for ikReduce: 0.5 = close 50%
+  end;
+
+  TMultiLegIntent = record
+    Legs: array of TIntent;
+    AtomicExecution: Boolean;  // if true, cancel all if any leg fails
+    Tag: AnsiString;
   end;
 
   TPosition = record
@@ -85,6 +91,9 @@ type
     { Update position from a fill }
     procedure ApplyFill(const AStrategy, ASymbol: AnsiString;
       AExchange: TExchange; AQty: Integer; APrice: Double; AIsBuy: Boolean);
+
+    { Multi-leg submission }
+    function SubmitMultiLeg(const AIntent: TMultiLegIntent): TArray<AnsiString>;
 
     { Flatten helpers }
     procedure FlattenAll;
@@ -406,6 +415,43 @@ begin
   end;
 
   FPositions.AddOrSetValue(Key, Pos);
+end;
+
+{ ── SubmitMultiLeg ─────────────────────────────────────────────────────────── }
+
+function TIntentEngine.SubmitMultiLeg(const AIntent: TMultiLegIntent): TArray<AnsiString>;
+var
+  I: Integer;
+  OrderId: AnsiString;
+  AnyFailed: Boolean;
+begin
+  SetLength(Result, Length(AIntent.Legs));
+  AnyFailed := False;
+
+  for I := 0 to High(AIntent.Legs) do
+  begin
+    OrderId := Submit(AIntent.Legs[I]);
+    Result[I] := OrderId;
+    if OrderId = '' then
+      AnyFailed := True;
+  end;
+
+  // If atomic and any leg failed, cancel all successfully placed legs
+  if AIntent.AtomicExecution and AnyFailed then
+  begin
+    for I := 0 to High(Result) do
+    begin
+      if Result[I] <> '' then
+      begin
+        try
+          FBroker.CancelOrder(Result[I]);
+        except
+          // Best effort cancellation
+        end;
+        Result[I] := '';
+      end;
+    end;
+  end;
 end;
 
 { ── Flatten ─────────────────────────────────────────────────────────────────── }
