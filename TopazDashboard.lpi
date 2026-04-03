@@ -48,7 +48,7 @@
             <LinkSmart Value="True"/>
             <Options>
               <PassLinkerOptions Value="True"/>
-              <LinkerOptions Value="-L/Users/rbhaskar/Development/apollo/target/release -ld_classic"/>
+              <LinkerOptions Value="-L/Users/rbhaskar/Development/apollo/target/release -F/Users/rbhaskar/Development/libqt6pas/cbindings -ld_classic"/>
             </Options>
           </Linking>
           <Other>
@@ -139,7 +139,7 @@
       </Debugging>
       <Options>
         <PassLinkerOptions Value="True"/>
-        <LinkerOptions Value="-L/Users/rbhaskar/Development/apollo/target/release -ld_classic"/>
+        <LinkerOptions Value="-L/Users/rbhaskar/Development/apollo/target/release -F/Users/rbhaskar/Development/libqt6pas/cbindings -ld_classic"/>
       </Options>
     </Linking>
   </CompilerOptions>
