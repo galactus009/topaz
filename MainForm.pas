@@ -425,18 +425,21 @@ end;
 procedure TfrmDashboard.FormKeyDown(Sender: TObject; var Key: Word;
   Shift: TShiftState);
 begin
+  // Only handle function keys — let all other keys pass to focused control
+  if not (Key in [VK_F1..VK_F12, VK_ESCAPE]) then Exit;
+
   case Key of
-    VK_F5: if btnStartEngine.Enabled then btnStartEngineClick(nil);
-    VK_F6: if btnStopEngine.Enabled then btnStopEngineClick(nil);
-    VK_ESCAPE: if FEngineState = esConnected then btnFlattenAllClick(nil);
-    VK_F1: begin ShowPage(PAGE_DASHBOARD); HighlightNav(btnNavDashboard); end;
-    VK_F2: begin ShowPage(PAGE_ORDERS); HighlightNav(btnNavOrders); end;
-    VK_F3: begin ShowPage(PAGE_STRATEGIES); HighlightNav(btnNavStrategies); end;
-    VK_F4: begin ShowPage(PAGE_SEARCH); HighlightNav(btnNavSearch); end;
-    VK_F7: begin ShowPage(PAGE_SETTINGS); HighlightNav(btnNavSettings); end;
-    VK_F8: begin ShowPage(PAGE_LOG); HighlightNav(btnNavLog); end;
-    VK_F9: begin ShowPage(PAGE_OPTIONS); HighlightNav(btnNavOptions); end;
-    VK_F10: begin ShowPage(PAGE_HEALTH); HighlightNav(btnNavHealth); end;
+    VK_F1: begin ShowPage(PAGE_DASHBOARD); HighlightNav(btnNavDashboard); Key := 0; end;
+    VK_F2: begin ShowPage(PAGE_ORDERS); HighlightNav(btnNavOrders); Key := 0; end;
+    VK_F3: begin ShowPage(PAGE_STRATEGIES); HighlightNav(btnNavStrategies); Key := 0; end;
+    VK_F4: begin ShowPage(PAGE_SEARCH); HighlightNav(btnNavSearch); Key := 0; end;
+    VK_F5: if btnStartEngine.Enabled then begin btnStartEngineClick(nil); Key := 0; end;
+    VK_F6: if btnStopEngine.Enabled then begin btnStopEngineClick(nil); Key := 0; end;
+    VK_F7: begin ShowPage(PAGE_SETTINGS); HighlightNav(btnNavSettings); Key := 0; end;
+    VK_F8: begin ShowPage(PAGE_LOG); HighlightNav(btnNavLog); Key := 0; end;
+    VK_F9: begin ShowPage(PAGE_OPTIONS); HighlightNav(btnNavOptions); Key := 0; end;
+    VK_F10: begin ShowPage(PAGE_HEALTH); HighlightNav(btnNavHealth); Key := 0; end;
+    VK_ESCAPE: if FEngineState = esConnected then begin btnFlattenAllClick(nil); Key := 0; end;
   end;
 end;
 
