@@ -129,7 +129,7 @@ type
     gridSearch: TStringGrid;
 
     { ── Page: Settings ── }
-    grpBroker: TGroupBox;
+    grpBroker: TPanel;
     cbxBroker: TComboBox;
     edtToken: TEdit;
     edtApiKey: TEdit;
@@ -139,7 +139,7 @@ type
     lblBrokerLabel: TLabel;
     lblTokenLabel: TLabel;
     lblApiKeyLabel: TLabel;
-    grpRisk: TGroupBox;
+    grpRisk: TPanel;
     edtDailyLossLimit: TEdit;
     edtMaxExposure: TEdit;
     edtStrategyLossLimit: TEdit;
@@ -153,7 +153,7 @@ type
     lblMaxSymbolExp: TLabel;
     lblMaxOrdersPerSec: TLabel;
     lblMaxOpenOrders: TLabel;
-    grpTimers: TGroupBox;
+    grpTimers: TPanel;
     edtDrainInterval: TEdit;
     edtPollInterval: TEdit;
     edtStateSaveInterval: TEdit;
@@ -162,7 +162,7 @@ type
     lblPollInterval: TLabel;
     lblStateSaveInterval: TLabel;
     lblDefaultWarmup: TLabel;
-    grpTradingHours: TGroupBox;
+    grpTradingHours: TPanel;
     lblMarketOpen: TLabel;
     edtMarketOpen: TEdit;
     lblMarketClose: TLabel;

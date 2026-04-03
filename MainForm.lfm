@@ -7,7 +7,6 @@ object frmDashboard: TfrmDashboard
   ClientHeight = 900
   ClientWidth = 1400
   Color = clForm
-  KeyPreview = True
   OnCreate = FormCreate
   OnDestroy = FormDestroy
   OnCloseQuery = FormCloseQuery
@@ -730,7 +729,7 @@ object frmDashboard: TfrmDashboard
     end
     object tsSettings: TTabSheet
       Caption = 'Settings'
-      object grpBroker: TGroupBox
+      object grpBroker: TPanel
         Left = 8
         Height = 180
         Top = 8
@@ -805,7 +804,7 @@ object frmDashboard: TfrmDashboard
           Caption = ''
         end
       end
-      object grpRisk: TGroupBox
+      object grpRisk: TPanel
         Left = 8
         Height = 170
         Top = 196
@@ -907,7 +906,7 @@ object frmDashboard: TfrmDashboard
           TabOrder = 6
         end
       end
-      object grpTimers: TGroupBox
+      object grpTimers: TPanel
         Left = 8
         Height = 100
         Top = 374
@@ -971,7 +970,7 @@ object frmDashboard: TfrmDashboard
           TabOrder = 3
         end
       end
-      object grpTradingHours: TGroupBox
+      object grpTradingHours: TPanel
         Left = 8
         Height = 100
         Top = 482
