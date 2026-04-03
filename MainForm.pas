@@ -129,7 +129,6 @@ type
     gridSearch: TStringGrid;
 
     { ── Page: Settings ── }
-    scrollSettings: TScrollBox;
     grpBroker: TGroupBox;
     cbxBroker: TComboBox;
     edtToken: TEdit;
