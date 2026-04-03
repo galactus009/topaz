@@ -43,7 +43,7 @@ run: debug
 	./$(BINARY)
 
 run-qt6: qt6
-	DYLD_FRAMEWORK_PATH=$(HOME)/Development/libqt6pas/cbindings ./$(BINARY)
+	DYLD_FRAMEWORK_PATH=/opt/homebrew/lib ./$(BINARY)
 
 clean:
 	rm -rf lib/
