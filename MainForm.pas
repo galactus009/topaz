@@ -544,6 +544,12 @@ begin
   BrokerNames[2] := 'fyers'; BrokerNames[3] := 'indmoney';
   BrokerNames[4] := 'dhan';
 
+  if (cbxBroker.ItemIndex < 0) or (cbxBroker.ItemIndex > 4) then
+  begin
+    Log('ERROR: Select a broker first');
+    Exit;
+  end;
+
   BN := BrokerNames[cbxBroker.ItemIndex];
   TK := AnsiString(edtToken.Text);
   AK := AnsiString(edtApiKey.Text);
@@ -554,7 +560,18 @@ begin
   Application.ProcessMessages;
 
   try
-    FBroker := TBroker.Create(BN, TK, AK);
+    try
+      FBroker := TBroker.Create(BN, TK, AK);
+    except
+      on E: Exception do
+      begin
+        Log('ERROR: Failed to create broker — ' + AnsiString(E.Message));
+        FBroker := nil;
+        SetEngineState(esError);
+        Exit;
+      end;
+    end;
+
     if not FBroker.Connect then
     begin
       Log('ERROR: ' + FBroker.LastError);
@@ -964,6 +981,7 @@ var
   TotalTrades: Integer;
 begin
   // Update risk status indicators
+  if FRisk = nil then Exit;
   if FRisk.KillSwitchTripped then
   begin
     lblRiskStatus.Caption := 'Risk: KILL SWITCH';
