@@ -9,7 +9,7 @@ program OrderStream;
 
 uses
   {$IFDEF FPC}SysUtils{$ELSE}System.SysUtils{$ENDIF},
-  Apollo.Broker;
+  Thorium.Broker;
 
 procedure OnOrder(UserData: Pointer; Json: PAnsiChar); cdecl;
 begin
@@ -35,7 +35,7 @@ end;
 var
   B: TBroker;
 begin
-  B := TBroker.Create('upstox', 'YOUR_TOKEN_HERE', '');
+  B := TBroker.Create('http://127.0.0.1:5000', 'YOUR_THORIUM_APIKEY');
   try
     B.Connect;
 

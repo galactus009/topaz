@@ -9,13 +9,13 @@ program PlaceOrder;
 
 uses
   {$IFDEF FPC}SysUtils{$ELSE}System.SysUtils{$ENDIF},
-  Apollo.Broker;
+  Thorium.Broker;
 
 var
   B: TBroker;
   OrderId: AnsiString;
 begin
-  B := TBroker.Create('upstox', 'YOUR_TOKEN_HERE', '');
+  B := TBroker.Create('http://127.0.0.1:5000', 'YOUR_THORIUM_APIKEY');
   try
     B.Connect;
     WriteLn('Margin: ', B.AvailableMargin:0:2);

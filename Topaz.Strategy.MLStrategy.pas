@@ -1,11 +1,11 @@
 {
-  MLStrategy — Full integration: Apollo + Indicators + XGBoost.
+  MLStrategy — Full integration: Thorium broker + Indicators + XGBoost.
 
   A Topaz strategy that:
   1. Computes RSI, MACD, Bollinger %B, VWAP deviation, OBV trend
      from live tick data (via Topaz.Indicators)
   2. Feeds the 8-feature vector into a pre-trained XGBoost model
-  3. Places buy/sell orders through Apollo based on ML prediction
+  3. Places buy/sell orders through Thorium based on ML prediction
 
   The model should be trained offline on historical data with the
   same 8 features. See TrainModel.pas for the training example.
@@ -27,7 +27,7 @@ unit Topaz.Strategy.MLStrategy;
 interface
 
 uses
-  SysUtils, Apollo.Broker, Topaz.EventTypes, Topaz.Strategy,
+  SysUtils, Thorium.Broker, Topaz.EventTypes, Topaz.Strategy,
   Topaz.Indicators, XGBoost.Wrapper;
 
 type

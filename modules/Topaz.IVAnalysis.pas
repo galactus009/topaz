@@ -14,7 +14,7 @@ unit Topaz.IVAnalysis;
 interface
 
 uses
-  SysUtils, Math, Apollo.Broker, Topaz.BlackScholes;
+  SysUtils, Math, Thorium.Broker, Topaz.BlackScholes;
 
 type
   TIVStats = record

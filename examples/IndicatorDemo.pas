@@ -9,7 +9,7 @@ program IndicatorDemo;
 {$mode Delphi}{$H+}
 
 uses
-  SysUtils, Apollo.Broker, Topaz.Indicators;
+  SysUtils, Thorium.Broker, Topaz.Indicators;
 
 var
   B: TBroker;
@@ -60,7 +60,7 @@ begin
   EMA20.Init(20);
   TickCount := 0;
 
-  B := TBroker.Create('upstox', ParamStr(1), '');
+  B := TBroker.Create('http://127.0.0.1:5000', ParamStr(1));
   try
     B.Connect;
     WriteLn('Instruments: ', B.InstrumentCount);

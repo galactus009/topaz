@@ -524,7 +524,7 @@ unit Topaz.Strategy.MLSignal;
 interface
 
 uses
-  SysUtils, Apollo.Broker, Topaz.EventTypes, Topaz.Strategy, XGBoost.Wrapper;
+  SysUtils, Thorium.Broker, Topaz.EventTypes, Topaz.Strategy, XGBoost.Wrapper;
 
 type
   TMLSignalStrategy = class(TStrategy)

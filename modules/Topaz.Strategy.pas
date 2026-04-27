@@ -17,7 +17,7 @@ unit Topaz.Strategy;
 interface
 
 uses
-  Classes, SysUtils, Apollo.Broker, Topaz.RingBuffer, Topaz.EventTypes,
+  Classes, SysUtils, Thorium.Broker, Topaz.RingBuffer, Topaz.EventTypes,
   Topaz.Risk, Topaz.Execution;
 
 type

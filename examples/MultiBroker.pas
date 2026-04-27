@@ -1,5 +1,11 @@
 {
-  MultiBroker.pas — Use multiple brokers simultaneously.
+  MultiBroker.pas — Talk to multiple Thorium instances simultaneously.
+
+  With the Thorium adapter the broker selection (Upstox, Fyers, Kite, ...)
+  lives on the Thorium server side. To use multiple brokers from the
+  client, run two Thorium instances bound to different ports and connect
+  to each one.
+
   Compile:
     fpc -Mdelphi MultiBroker.pas
 }
@@ -9,33 +15,26 @@ program MultiBroker;
 
 uses
   {$IFDEF FPC}SysUtils{$ELSE}System.SysUtils{$ENDIF},
-  Apollo.Broker;
+  Thorium.Broker;
 
 var
-  Upstox, Fyers: TBroker;
-  UpstoxLTP, FyersLTP: Double;
+  Primary, Secondary: TBroker;
+  PrimaryLTP, SecondaryLTP: Double;
 begin
-  Upstox := TBroker.Create('upstox', 'UPSTOX_TOKEN', '');
-  Fyers  := TBroker.Create('fyers',  'FYERS_TOKEN', 'FYERS_CLIENT_ID');
+  Primary   := TBroker.Create('http://127.0.0.1:5000', 'PRIMARY_APIKEY');
+  Secondary := TBroker.Create('http://127.0.0.1:5001', 'SECONDARY_APIKEY');
   try
-    Upstox.Connect;
-    Fyers.Connect;
+    Primary.Connect;
+    Secondary.Connect;
 
-    WriteLn('Upstox instruments: ', Upstox.InstrumentCount);
-    WriteLn('Fyers instruments:  ', Fyers.InstrumentCount);
-
-    // Compare LTP across brokers
-    UpstoxLTP := Upstox.LTP('RELIANCE', exNSE);
-    FyersLTP  := Fyers.LTP('RELIANCE', exNSE);
-    WriteLn('RELIANCE LTP (Upstox): ', UpstoxLTP:0:2);
-    WriteLn('RELIANCE LTP (Fyers):  ', FyersLTP:0:2);
-    WriteLn('Diff: ', Abs(UpstoxLTP - FyersLTP):0:2);
-
-    // Symbol mapping — same canonical name, different broker keys
-    WriteLn('Upstox key: ', Upstox.ToBrokerKey('NSE:RELIANCE'));
-    WriteLn('Fyers key:  ', Fyers.ToBrokerKey('NSE:RELIANCE'));
+    // Compare LTP across instances (each may be attached to a different broker)
+    PrimaryLTP   := Primary.LTP('RELIANCE', exNSE);
+    SecondaryLTP := Secondary.LTP('RELIANCE', exNSE);
+    WriteLn('RELIANCE LTP (primary):   ', PrimaryLTP:0:2);
+    WriteLn('RELIANCE LTP (secondary): ', SecondaryLTP:0:2);
+    WriteLn('Diff: ', Abs(PrimaryLTP - SecondaryLTP):0:2);
   finally
-    Fyers.Free;
-    Upstox.Free;
+    Secondary.Free;
+    Primary.Free;
   end;
 end.

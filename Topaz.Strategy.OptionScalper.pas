@@ -26,7 +26,7 @@ unit Topaz.Strategy.OptionScalper;
 interface
 
 uses
-  SysUtils, DateUtils, Apollo.Broker, Topaz.EventTypes, Topaz.Strategy,
+  SysUtils, DateUtils, Thorium.Broker, Topaz.EventTypes, Topaz.Strategy,
   Topaz.Adjustment;
 
 type

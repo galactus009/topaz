@@ -19,7 +19,7 @@ uses
   Classes, SysUtils, Generics.Collections,
   Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls, Grids,
   Spin, ComCtrls, Menus, LCLType,
-  Apollo.Broker, Topaz.EventTypes, Topaz.Strategy, Topaz.Risk,
+  Thorium.Broker, Topaz.EventTypes, Topaz.Strategy, Topaz.Risk,
   Topaz.State, Topaz.Reconciler, Topaz.Session, BotWizard,
   Topaz.IVAnalysis, Topaz.BlackScholes, Topaz.Alerts,
   Topaz.PortfolioGreeks;
@@ -537,31 +537,22 @@ begin StopEngine; StartEngine; end;
 
 procedure TfrmDashboard.StartEngine;
 var
-  BrokerNames: array[0..4] of AnsiString;
-  BN, TK, AK: AnsiString;
+  BaseUrl, ApiKey: AnsiString;
 begin
-  BrokerNames[0] := 'upstox'; BrokerNames[1] := 'kite';
-  BrokerNames[2] := 'fyers'; BrokerNames[3] := 'indmoney';
-  BrokerNames[4] := 'dhan';
+  // edtToken now carries the Thorium apikey; edtApiKey holds the Thorium
+  // base URL (broker selection is handled by the Thorium server config).
+  ApiKey  := AnsiString(edtToken.Text);
+  BaseUrl := AnsiString(edtApiKey.Text);
+  if BaseUrl = '' then BaseUrl := 'http://127.0.0.1:5000';
 
-  if (cbxBroker.ItemIndex < 0) or (cbxBroker.ItemIndex > 4) then
-  begin
-    Log('ERROR: Select a broker first');
-    Exit;
-  end;
-
-  BN := BrokerNames[cbxBroker.ItemIndex];
-  TK := AnsiString(edtToken.Text);
-  AK := AnsiString(edtApiKey.Text);
-
-  if TK = '' then begin Log('ERROR: Access token required'); Exit; end;
+  if ApiKey = '' then begin Log('ERROR: Thorium apikey required'); Exit; end;
 
   SetEngineState(esStarting);
   Application.ProcessMessages;
 
   try
     try
-      FBroker := TBroker.Create(BN, TK, AK);
+      FBroker := TBroker.Create(BaseUrl, ApiKey);
     except
       on E: Exception do
       begin
@@ -822,10 +813,12 @@ begin
     if JData is TJSONObject then
     begin
       JObj := TJSONObject(JData);
-      OrderId := JObj.Get('order_id', JObj.Get('orderId', ''));
-      Status := JObj.Get('status', '');
+      // Thorium uses orderid/order_status; legacy shims used order_id/orderId/status.
+      OrderId := JObj.Get('orderid',
+        JObj.Get('order_id', JObj.Get('orderId', '')));
+      Status := JObj.Get('order_status', JObj.Get('status', ''));
       Symbol := JObj.Get('symbol', JObj.Get('tradingsymbol', ''));
-      Side := JObj.Get('side', JObj.Get('transaction_type', ''));
+      Side := JObj.Get('transaction_type', JObj.Get('side', ''));
       FilledQty := JObj.Get('filled_qty', JObj.Get('filled_quantity', 0));
       AvgPrice := JObj.Get('avg_price', JObj.Get('average_price', 0.0));
 
@@ -1176,10 +1169,12 @@ begin
         gridSearch.Cells[0, Row] := JObj.Get('symbol', '');
         gridSearch.Cells[1, Row] := JObj.Get('name', '');
         gridSearch.Cells[2, Row] := JObj.Get('exchange', '');
-        gridSearch.Cells[3, Row] := JObj.Get('type', '');
-        gridSearch.Cells[4, Row] := IntToStr(JObj.Get('lot_size', 1));
+        // OpenAlgo field names — fall back to legacy keys if Thorium is
+        // ever proxied through an older shim.
+        gridSearch.Cells[3, Row] := JObj.Get('instrumenttype', JObj.Get('type', ''));
+        gridSearch.Cells[4, Row] := IntToStr(JObj.Get('lotsize', JObj.Get('lot_size', 1)));
         gridSearch.Cells[5, Row] := FloatToStr(JObj.Get('tick_size', 0.05));
-        gridSearch.Cells[6, Row] := JObj.Get('key', '');
+        gridSearch.Cells[6, Row] := JObj.Get('brsymbol', JObj.Get('key', ''));
       end;
       Log(Format('Search: %d results', [gridSearch.RowCount - 1]));
     finally

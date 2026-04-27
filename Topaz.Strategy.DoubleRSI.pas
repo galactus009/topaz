@@ -18,7 +18,7 @@ unit Topaz.Strategy.DoubleRSI;
 interface
 
 uses
-  SysUtils, Apollo.Broker, Topaz.EventTypes, Topaz.Strategy,
+  SysUtils, Thorium.Broker, Topaz.EventTypes, Topaz.Strategy,
   Topaz.Indicators;
 
 type

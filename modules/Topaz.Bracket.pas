@@ -19,7 +19,7 @@ unit Topaz.Bracket;
 interface
 
 uses
-  SysUtils, Generics.Collections, Apollo.Broker;
+  SysUtils, Generics.Collections, Thorium.Broker;
 
 type
   TBracketState = (bsPending, bsActive, bsPartialFill, bsCompleted, bsCancelled);

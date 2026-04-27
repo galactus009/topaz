@@ -22,7 +22,7 @@ unit Topaz.Execution;
 interface
 
 uses
-  SysUtils, DateUtils, Apollo.Broker;
+  SysUtils, DateUtils, Thorium.Broker;
 
 type
   TExecAlgo = (eaDirect, eaTWAP);

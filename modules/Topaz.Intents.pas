@@ -29,7 +29,7 @@ unit Topaz.Intents;
 interface
 
 uses
-  SysUtils, Math, Generics.Collections, Apollo.Broker, Topaz.Risk;
+  SysUtils, Math, Generics.Collections, Thorium.Broker, Topaz.Risk;
 
 type
   TIntentKind = (ikEntry, ikExit, ikReduce, ikFlatten, ikBracket, ikMultiLeg);

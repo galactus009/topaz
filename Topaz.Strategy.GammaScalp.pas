@@ -20,7 +20,7 @@ unit Topaz.Strategy.GammaScalp;
 interface
 
 uses
-  SysUtils, Math, DateUtils, Apollo.Broker, Topaz.EventTypes, Topaz.Strategy,
+  SysUtils, Math, DateUtils, Thorium.Broker, Topaz.EventTypes, Topaz.Strategy,
   Topaz.BlackScholes, Topaz.Adjustment;
 
 type

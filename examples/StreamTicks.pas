@@ -9,7 +9,7 @@ program StreamTicks;
 
 uses
   {$IFDEF FPC}SysUtils{$ELSE}System.SysUtils{$ENDIF},
-  Apollo.Broker;
+  Thorium.Broker;
 
 procedure OnTick(UserData: Pointer; SymbolId: Integer;
   LTP, Bid, Ask: Double; Volume, OI: Int64); cdecl;
@@ -36,7 +36,7 @@ end;
 var
   B: TBroker;
 begin
-  B := TBroker.Create('upstox', 'YOUR_TOKEN_HERE', '');
+  B := TBroker.Create('http://127.0.0.1:5000', 'YOUR_THORIUM_APIKEY');
   try
     B.Connect;
     WriteLn('Connected. Instruments: ', B.InstrumentCount);

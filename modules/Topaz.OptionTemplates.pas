@@ -14,7 +14,7 @@ unit Topaz.OptionTemplates;
 interface
 
 uses
-  SysUtils, Math, Apollo.Broker, Topaz.Intents;
+  SysUtils, Math, Thorium.Broker, Topaz.Intents;
 
 type
   TTemplateKind = (

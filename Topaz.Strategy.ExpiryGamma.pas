@@ -26,7 +26,7 @@ unit Topaz.Strategy.ExpiryGamma;
 interface
 
 uses
-  SysUtils, Apollo.Broker, Topaz.EventTypes, Topaz.Strategy;
+  SysUtils, Thorium.Broker, Topaz.EventTypes, Topaz.Strategy;
 
 type
   TGammaState = (gsInit, gsWaiting, gsPositioned, gsSquaredOff);

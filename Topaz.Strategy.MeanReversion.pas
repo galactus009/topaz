@@ -17,7 +17,7 @@ unit Topaz.Strategy.MeanReversion;
 interface
 
 uses
-  SysUtils, Math, Apollo.Broker, Topaz.EventTypes, Topaz.Strategy,
+  SysUtils, Math, Thorium.Broker, Topaz.EventTypes, Topaz.Strategy,
   Topaz.Indicators;
 
 type

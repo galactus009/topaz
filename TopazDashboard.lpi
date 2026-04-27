@@ -63,10 +63,13 @@
     <RunParams>
       <FormatVersion Value="2"/>
     </RunParams>
-    <RequiredPackages Count="1">
+    <RequiredPackages Count="2">
       <Item1>
-        <PackageName Value="LCL"/>
+        <PackageName Value="mormot2"/>
       </Item1>
+      <Item2>
+        <PackageName Value="LCL"/>
+      </Item2>
     </RequiredPackages>
     <Units Count="10">
       <Unit0>
@@ -93,7 +96,7 @@
         <IsPartOfProject Value="True"/>
       </Unit4>
       <Unit5>
-        <Filename Value="modules/Apollo.Broker.pas"/>
+        <Filename Value="modules/Thorium.Broker.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit5>
       <Unit6>

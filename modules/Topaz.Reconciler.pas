@@ -18,11 +18,12 @@ interface
 
 uses
   SysUtils, Classes, Generics.Collections, fpjson, jsonparser,
-  Apollo.Broker, Topaz.State;
+  Thorium.Broker, Topaz.State;
 
 type
   TDriftItem = record
     Symbol: AnsiString;
+    Exchange: TExchange;          // exchange the broker reported (or local default)
     LocalQty: Integer;
     BrokerQty: Integer;
     LocalAvgPrice: Double;
@@ -79,12 +80,27 @@ begin
   inherited;
 end;
 
+function ExchangeFromString(const S: AnsiString): TExchange;
+var
+  U: AnsiString;
+begin
+  U := UpperCase(S);
+  if      (U = 'NSE') or (U = 'NSE_EQ') or (U = 'NSE_INDEX') then Result := exNSE
+  else if (U = 'BSE') or (U = 'BSE_EQ') or (U = 'BSE_INDEX') then Result := exBSE
+  else if (U = 'NFO') or (U = 'NSE_FO') then Result := exNFO
+  else if (U = 'BFO') or (U = 'BSE_FO') then Result := exBFO
+  else if  U = 'MCX' then Result := exMCX
+  else if (U = 'CDS') or (U = 'BCD')    then Result := exCDS
+  else                                       Result := exNSE;
+end;
+
 procedure TReconciler.ParseBrokerPositions(const AJson: AnsiString);
 var
   Root: TJSONData;
   Arr: TJSONArray;
   Obj: TJSONObject;
   Item: TDriftItem;
+  Qty: Integer;
   I: Integer;
 begin
   FBrokerPositions.Clear;
@@ -102,8 +118,14 @@ begin
 
       Item := Default(TDriftItem);
       Item.Symbol := Obj.Get('symbol', '');
-      Item.BrokerQty := Obj.Get('qty', Obj.Get('quantity', 0));
-      Item.BrokerAvgPrice := Obj.Get('avg_price', Obj.Get('average_price', Double(0)));
+      Item.Exchange := ExchangeFromString(Obj.Get('exchange', ''));
+      // Thorium's positionbook reports `quantity` and `netqty`; some legacy
+      // proxies still emit `qty`. `netqty` is canonical for net position.
+      Qty := Obj.Get('netqty',
+        Obj.Get('quantity', Obj.Get('qty', 0)));
+      Item.BrokerQty := Qty;
+      Item.BrokerAvgPrice := Obj.Get('average_price',
+        Obj.Get('avg_price', Double(0)));
       Item.LocalQty := 0;
       Item.LocalAvgPrice := 0;
       Item.Action := '';
@@ -151,6 +173,7 @@ begin
 
         Drift := Default(TDriftItem);
         Drift.Symbol := BrokerItem.Symbol;
+        Drift.Exchange := BrokerItem.Exchange;
         Drift.BrokerQty := BrokerItem.BrokerQty;
         Drift.BrokerAvgPrice := BrokerItem.BrokerAvgPrice;
         Drift.LocalQty := LocalPositions[J].Qty;
@@ -171,6 +194,7 @@ begin
       // Broker has position not tracked locally — orphan
       Drift := Default(TDriftItem);
       Drift.Symbol := BrokerItem.Symbol;
+      Drift.Exchange := BrokerItem.Exchange;
       Drift.BrokerQty := BrokerItem.BrokerQty;
       Drift.BrokerAvgPrice := BrokerItem.BrokerAvgPrice;
       Drift.LocalQty := 0;
@@ -265,7 +289,7 @@ begin
   begin
     D := FDrifts[I];
     if D.Action = 'broker_only' then
-      FBroker.ExitPosition(D.Symbol, TExchange(0));  // default exchange; symbol lookup handles routing
+      FBroker.ExitPosition(D.Symbol, D.Exchange);
   end;
 end;
 

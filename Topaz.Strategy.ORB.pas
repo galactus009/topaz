@@ -27,7 +27,7 @@ unit Topaz.Strategy.ORB;
 interface
 
 uses
-  SysUtils, Math, DateUtils, Apollo.Broker, Topaz.EventTypes, Topaz.Strategy,
+  SysUtils, Math, DateUtils, Thorium.Broker, Topaz.EventTypes, Topaz.Strategy,
   Topaz.Indicators;
 
 type
