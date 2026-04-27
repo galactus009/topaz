@@ -15,6 +15,9 @@
  *     is derived from it (host kept, port → 8765, scheme → ws).
  *   - ApiKey: the shared THORIUM_APIKEY value.
  *
+ * Implementation: HTTP client + JSON via mORMot 2 (TSimpleHttpClient +
+ * TDocVariant). Compiles in both FreePascal and Delphi.
+ *
  * SymbolId model:
  *   Thorium identifies instruments by (symbol, exchange) string pairs, but
  *   the topaz codebase uses an integer SymbolId for hot-path tick dispatch.
@@ -32,9 +35,9 @@ unit Thorium.Broker;
 interface
 
 uses
-  SysUtils, Classes, SyncObjs, fpjson, jsonparser, fphttpclient, opensslsockets,
-  mormot.core.base, mormot.core.text,
-  mormot.net.ws.core, mormot.net.ws.client;
+  SysUtils, Classes, SyncObjs, Variants,
+  mormot.core.base, mormot.core.text, mormot.core.variants,
+  mormot.net.client, mormot.net.ws.core, mormot.net.ws.client;
 
 type
   TExchange = (
@@ -99,8 +102,6 @@ type
     FSymLock: TCriticalSection;
 
     // Exchange auto-detect cache: 'SYM|REQ_EX' → resolved Thorium exchange.
-    // Lets caller pass exNSE for an index without us knowing in advance
-    // whether NSE or NSE_INDEX is the right CIDExchange.
     FExchCache: TStringList;
     FExchLock:  TCriticalSection;
 
@@ -133,9 +134,11 @@ type
     function OptionTypeStr(AOpt: TOptionType): AnsiString;
     function ProbeSymbol(const ASym, AExchStr: AnsiString): Boolean;
 
-    function HttpPostJson(const APath: AnsiString;
-      ABody: TJSONObject): TJSONData;
-    function StatusOk(AResp: TJSONData; out AData: TJSONData): Boolean;
+    // Returns Null on transport failure, otherwise the parsed response
+    // variant (which may itself be {status:error,...}). FLastError is set
+    // on transport failure; StatusOk handles application-level errors.
+    function HttpPostJson(const APath: RawUtf8; const ABody: variant): variant;
+    function StatusOk(const AResp: variant; out AData: variant): Boolean;
 
     function GetOrCreateSymId(const ASym, AExch: AnsiString): Integer;
     function SymKey(ASymbolId: Integer): AnsiString;
@@ -144,7 +147,7 @@ type
 
     procedure WsIncomingFrame(Sender: TWebSocketProcess;
       const Frame: TWebSocketFrame);
-    procedure DispatchTickJson(AObj: TJSONObject);
+    procedure DispatchTick(const ATick: variant; const ARawText: AnsiString);
     function WsSendJson(const AJson: AnsiString): Boolean;
     function WsAuthenticate: Boolean;
     procedure WsResubscribeAll;
@@ -307,6 +310,38 @@ begin
   end;
 end;
 
+// VariantToInteger / VariantToDouble fallbacks for fields that may be
+// serialized as strings (Thorium emits cash fields as 2-decimal INR strings).
+function VarToFloatLoose(const V: variant): Double;
+var
+  S: string;
+begin
+  if VarIsNumeric(V) then
+    Result := V
+  else if VarIsStr(V) then
+  begin
+    S := VarToStr(V);
+    Result := StrToFloatDef(S, 0);
+  end
+  else
+    Result := 0;
+end;
+
+function VarToInt64Loose(const V: variant): Int64;
+var
+  S: string;
+begin
+  if VarIsNumeric(V) then
+    Result := V
+  else if VarIsStr(V) then
+  begin
+    S := VarToStr(V);
+    Result := StrToInt64Def(S, 0);
+  end
+  else
+    Result := 0;
+end;
+
 // ── TBroker ──────────────────────────────────────────────────────────────────
 
 constructor TBroker.Create(const ABaseUrl, AApiKey: AnsiString);
@@ -378,26 +413,13 @@ end;
 
 function TBroker.ProbeSymbol(const ASym, AExchStr: AnsiString): Boolean;
 var
-  Body: TJSONObject;
-  Resp: TJSONData;
-  Data: TJSONData;
+  Body, Resp, Data: variant;
 begin
   Result := False;
   if (ASym = '') or (AExchStr = '') then Exit;
-  Body := TJSONObject.Create;
-  try
-    Body.Add('symbol',   string(ASym));
-    Body.Add('exchange', string(AExchStr));
-    Resp := HttpPostJson('/api/v1/symbol', Body);
-  finally
-    Body.Free;
-  end;
-  if Resp = nil then Exit;
-  try
-    Result := StatusOk(Resp, Data);
-  finally
-    Resp.Free;
-  end;
+  Body := _ObjFast(['symbol', string(ASym), 'exchange', string(AExchStr)]);
+  Resp := HttpPostJson('/api/v1/symbol', Body);
+  Result := StatusOk(Resp, Data);
 end;
 
 function TBroker.ResolveExchange(const ASym: AnsiString;
@@ -474,83 +496,86 @@ begin
   else Result := '';
 end;
 
-// ── HTTP plumbing ────────────────────────────────────────────────────────────
+// ── HTTP plumbing (mORMot 2 — TSimpleHttpClient + TDocVariant) ───────────────
 
-function TBroker.HttpPostJson(const APath: AnsiString;
-  ABody: TJSONObject): TJSONData;
+function TBroker.HttpPostJson(const APath: RawUtf8;
+  const ABody: variant): variant;
 var
-  Http: TFPHTTPClient;
-  Req:  TStringStream;
-  Resp: TStringStream;
-  Url:  AnsiString;
+  HTTP: TSimpleHttpClient;
+  Url, BodyJson: RawUtf8;
+  D: PDocVariantData;
+  Status: Integer;
 begin
-  Result := nil;
-  if (ABody.IndexOfName('apikey') < 0) and (FApiKey <> '') then
-    ABody.Add('apikey', FApiKey);
+  // VarClear leaves Result as Unassigned — caller treats that as transport
+  // failure. mORMot's variant semantics: VarIsClear/VarIsEmpty match.
+  VarClear(Result);
 
-  Url := FBaseUrl + APath;
-  Http := TFPHTTPClient.Create(nil);
-  Req  := TStringStream.Create(ABody.AsJSON);
-  Resp := TStringStream.Create('');
+  // Inject apikey into the request body if not already present.
+  D := _Safe(ABody);
+  if (FApiKey <> '') and (D^.GetValueIndex('apikey') < 0) then
+    D^.AddValue('apikey', FApiKey);
+
+  Url := RawUtf8(FBaseUrl) + APath;
+  BodyJson := VariantSaveJson(ABody);
+
+  HTTP := TSimpleHttpClient.Create;
   try
-    Http.AddHeader('Content-Type', 'application/json');
-    Http.AllowRedirect := True;
-    Http.RequestBody := Req;
     try
-      Http.Post(Url, Resp);
+      Status := HTTP.Request(Url, 'POST', '', BodyJson, 'application/json', 0);
     except
       on E: Exception do
       begin
-        FLastError := AnsiString(Format('POST %s failed: %s', [Url, E.Message]));
-        Exit(nil);
+        FLastError := AnsiString(Format('POST %s failed: %s',
+          [string(Url), E.Message]));
+        Exit;
       end;
     end;
-    if (Http.ResponseStatusCode < 200) or (Http.ResponseStatusCode >= 300) then
+    if HTTP.Body = '' then
     begin
-      // Still try to parse body — Thorium errors come back with status:error JSON.
-      if Resp.DataString = '' then
-      begin
-        FLastError := AnsiString(Format('HTTP %d on %s', [Http.ResponseStatusCode, APath]));
-        Exit(nil);
-      end;
+      FLastError := AnsiString(Format('POST %s: empty response (HTTP %d)',
+        [string(Url), Status]));
+      Exit;
     end;
     try
-      Result := GetJSON(Resp.DataString);
+      Result := _Json(string(HTTP.Body));
     except
       on E: Exception do
       begin
         FLastError := AnsiString('Invalid JSON response: ' + E.Message);
-        Result := nil;
+        VarClear(Result);
       end;
     end;
   finally
-    Resp.Free;
-    Req.Free;
-    Http.Free;
+    HTTP.Free;
   end;
 end;
 
-function TBroker.StatusOk(AResp: TJSONData; out AData: TJSONData): Boolean;
+function TBroker.StatusOk(const AResp: variant; out AData: variant): Boolean;
 var
-  Obj: TJSONObject;
-  Status: AnsiString;
-  MsgVal: TJSONData;
+  D: PDocVariantData;
+  Status, Msg: RawUtf8;
 begin
-  AData := nil;
+  VarClear(AData);
   Result := False;
-  if (AResp = nil) or not (AResp is TJSONObject) then Exit;
-  Obj := TJSONObject(AResp);
-  Status := AnsiString(Obj.Get('status', ''));
-  if Status <> 'success' then
+  if VarIsClear(AResp) or VarIsEmpty(AResp) then Exit;
+  D := _Safe(AResp);
+  if D^.Kind <> dvObject then Exit;
+  if not D^.GetAsRawUtf8('status', Status) then
   begin
-    MsgVal := Obj.Find('message');
-    if MsgVal <> nil then
-      FLastError := AnsiString(MsgVal.AsString)
-    else
-      FLastError := 'broker returned status=' + Status;
+    FLastError := 'response missing status field';
     Exit;
   end;
-  AData := Obj.Find('data');
+  if Status <> 'success' then
+  begin
+    if D^.GetAsRawUtf8('message', Msg) then
+      FLastError := AnsiString(Msg)
+    else
+      FLastError := AnsiString('broker returned status=' + Status);
+    Exit;
+  end;
+  // Some endpoints carry the payload under "data"; place/cancel/modify
+  // return the orderid at top level. Caller decides which.
+  AData := D^.Value['data'];
   Result := True;
 end;
 
@@ -558,66 +583,42 @@ end;
 
 function TBroker.Connect: Boolean;
 var
-  Body: TJSONObject;
-  Resp: TJSONData;
-  Data: TJSONData;
+  Resp, Data: variant;
   Msg: AnsiString;
 begin
   Result := False;
 
   // Liveness: POST /api/v1/ping (no auth required).
-  Body := TJSONObject.Create;
-  try
-    Resp := HttpPostJson('/api/v1/ping', Body);
-  finally
-    Body.Free;
-  end;
-  if Resp = nil then
+  Resp := HttpPostJson('/api/v1/ping', _ObjFast([]));
+  if VarIsClear(Resp) then
   begin
     if FLastError = '' then FLastError := 'thorium not reachable';
     Exit;
   end;
-  try
-    if not StatusOk(Resp, Data) then Exit;
-  finally
-    Resp.Free;
-  end;
+  if not StatusOk(Resp, Data) then Exit;
 
   // Auth probe: POST /api/v1/funds. Three outcomes worth distinguishing:
-  //   - status:success  → broker attached, apikey accepted.
-  //   - status:error + "no broker" message → apikey accepted, broker not yet
-  //     attached on the server. Treat as connected; calls that need a broker
-  //     will fail individually.
-  //   - status:error + "invalid apikey" / 401 / 403 → fail Connect.
-  Body := TJSONObject.Create;
-  try
-    Resp := HttpPostJson('/api/v1/funds', Body);
-  finally
-    Body.Free;
-  end;
-  if Resp = nil then
+  //   - status:success → broker attached, apikey accepted.
+  //   - status:error + apikey/forbidden message → fail Connect.
+  //   - status:error + anything else (e.g. no broker) → auth ok, accept.
+  Resp := HttpPostJson('/api/v1/funds', _ObjFast([]));
+  if VarIsClear(Resp) then
   begin
     if FLastError = '' then FLastError := 'thorium funds probe failed';
     Exit;
   end;
-  try
-    if StatusOk(Resp, Data) then
-    begin
-      FConnected := True;
-      FLastError := '';
-      Exit(True);
-    end;
-    // StatusOk left FLastError populated with the broker message.
-    Msg := LowerCase(FLastError);
-    if (Pos('apikey', Msg) > 0) or (Pos('api key', Msg) > 0)
-       or (Pos('unauthor', Msg) > 0) or (Pos('forbidden', Msg) > 0) then
-      Exit;
-    // Anything else (no broker, broker not ready, etc.) — auth itself ok.
+  if StatusOk(Resp, Data) then
+  begin
     FConnected := True;
-    Result := True;
-  finally
-    Resp.Free;
+    FLastError := '';
+    Exit(True);
   end;
+  Msg := LowerCase(FLastError);
+  if (Pos('apikey', Msg) > 0) or (Pos('api key', Msg) > 0)
+     or (Pos('unauthor', Msg) > 0) or (Pos('forbidden', Msg) > 0) then
+    Exit;
+  FConnected := True;
+  Result := True;
 end;
 
 function TBroker.Disconnect: Boolean;
@@ -672,7 +673,7 @@ begin
     if Idx >= 0 then
       Exit(PtrInt(FSymToId.Objects[Idx]));
     FIdKeys.Add(string(Key));
-    Result := FIdKeys.Count - 1;  // SymbolId = position in FIdKeys
+    Result := FIdKeys.Count - 1;
     FSymToId.AddObject(string(Key), TObject(PtrInt(Result)));
   finally
     FSymLock.Leave;
@@ -706,14 +707,13 @@ end;
 
 // ── Catalog ──────────────────────────────────────────────────────────────────
 
-function TBroker.FindInstrument(const ASymbol: AnsiString; AExchange: TExchange): Integer;
+function TBroker.FindInstrument(const ASymbol: AnsiString;
+  AExchange: TExchange): Integer;
 var
   ExchStr: AnsiString;
 begin
   Result := -1;
   if ASymbol = '' then Exit;
-  // ResolveExchange probes /api/v1/symbol; trying both equity and index
-  // forms for NSE/BSE callers and caching the answer.
   ExchStr := ResolveExchange(ASymbol, AExchange);
   if not ProbeSymbol(ASymbol, ExchStr) then Exit;
   Result := GetOrCreateSymId(ASymbol, ExchStr);
@@ -733,8 +733,6 @@ function TBroker.InstrumentKey(ASymbolId: Integer): AnsiString;
 var
   Sym, Exch: AnsiString;
 begin
-  // Compose 'EXCH|SYM' style broker key — Thorium doesn't surface a separate
-  // broker key over REST without a per-symbol fetch, so use the canonical form.
   if ParseSymKey(SymKey(ASymbolId), Sym, Exch) then
     Result := Exch + '|' + Sym
   else
@@ -743,250 +741,188 @@ end;
 
 function TBroker.InstrumentJson(ASymbolId: Integer): AnsiString;
 var
-  Body: TJSONObject;
-  Resp: TJSONData;
-  Data: TJSONData;
   Sym, Exch: AnsiString;
+  Body, Resp, Data: variant;
 begin
   Result := '{}';
   if not ParseSymKey(SymKey(ASymbolId), Sym, Exch) then Exit;
-  Body := TJSONObject.Create;
-  try
-    Body.Add('symbol',   string(Sym));
-    Body.Add('exchange', string(Exch));
-    Resp := HttpPostJson('/api/v1/symbol', Body);
-  finally
-    Body.Free;
-  end;
-  if Resp = nil then Exit;
-  try
-    if StatusOk(Resp, Data) and (Data <> nil) then
-      Result := AnsiString(Data.AsJSON);
-  finally
-    Resp.Free;
-  end;
+  Body := _ObjFast(['symbol', string(Sym), 'exchange', string(Exch)]);
+  Resp := HttpPostJson('/api/v1/symbol', Body);
+  if not StatusOk(Resp, Data) then Exit;
+  if not VarIsClear(Data) then
+    Result := AnsiString(VariantSaveJson(Data));
 end;
 
 function TBroker.ListExpiriesJson(const AUnderlying: AnsiString;
   AExchange: TExchange): AnsiString;
 var
-  Body: TJSONObject;
-  Resp: TJSONData;
-  Data: TJSONData;
-  ExpArr: TJSONData;
-  OutArr: TJSONArray;
-  Item:   TJSONObject;
-  S, MonthName: AnsiString;
-  I, Y, M, D: Integer;
+  Body, Resp, Data: variant;
+  ExpArr: PDocVariantData;
+  Out: TDocVariantData;
+  S: RawUtf8;
+  Y, M, D, I: Integer;
   DT: TDateTime;
+  MonthName: string;
+  ItemObj: variant;
 begin
-  // Output shape (preserved from libapollo era so consumers don't change):
+  // Output shape (preserved from the pre-Thorium era):
   //   [{"label":"24APR26","expiry":"2026-04-24","unix":1714521600}, ...]
   Result := '[]';
-  Body := TJSONObject.Create;
-  try
-    Body.Add('symbol', string(AUnderlying));
-    Resp := HttpPostJson('/api/v1/expiry', Body);
-  finally
-    Body.Free;
-  end;
-  if Resp = nil then Exit;
-  try
-    if not StatusOk(Resp, Data) then Exit;
-    if not (Data is TJSONObject) then Exit;
-    ExpArr := TJSONObject(Data).Find('expiries');
-    if (ExpArr = nil) or not (ExpArr is TJSONArray) then Exit;
+  Body := _ObjFast(['symbol', string(AUnderlying)]);
+  Resp := HttpPostJson('/api/v1/expiry', Body);
+  if not StatusOk(Resp, Data) then Exit;
+  if _Safe(Data)^.Kind <> dvObject then Exit;
+  if not _Safe(Data)^.GetAsArray('expiries', ExpArr) then Exit;
 
-    OutArr := TJSONArray.Create;
-    try
-      for I := 0 to TJSONArray(ExpArr).Count - 1 do
-      begin
-        S := AnsiString(TJSONArray(ExpArr).Strings[I]);
-        if (Length(S) <> 10)
-           or not TryStrToInt(Copy(string(S), 1, 4), Y)
-           or not TryStrToInt(Copy(string(S), 6, 2), M)
-           or not TryStrToInt(Copy(string(S), 9, 2), D) then
-          Continue;
-        DT := EncodeDate(Y, M, D);
-        case M of
-          1: MonthName := 'JAN';  2: MonthName := 'FEB';  3: MonthName := 'MAR';
-          4: MonthName := 'APR';  5: MonthName := 'MAY';  6: MonthName := 'JUN';
-          7: MonthName := 'JUL';  8: MonthName := 'AUG';  9: MonthName := 'SEP';
-         10: MonthName := 'OCT'; 11: MonthName := 'NOV'; 12: MonthName := 'DEC';
-        else MonthName := '???';
-        end;
-        Item := TJSONObject.Create;
-        Item.Add('label',  Format('%.2d%s%.2d', [D, string(MonthName), Y mod 100]));
-        Item.Add('expiry', string(S));
-        Item.Add('unix',   Int64(DateTimeToUnix(DT)));
-        OutArr.Add(Item);
-      end;
-      Result := AnsiString(OutArr.AsJSON);
-    finally
-      OutArr.Free;
+  Out.InitArray([], JSON_FAST);
+  for I := 0 to ExpArr^.Count - 1 do
+  begin
+    S := VariantToUtf8(ExpArr^.Values[I]);
+    if (Length(S) <> 10)
+       or not TryStrToInt(Copy(string(S), 1, 4), Y)
+       or not TryStrToInt(Copy(string(S), 6, 2), M)
+       or not TryStrToInt(Copy(string(S), 9, 2), D) then
+      Continue;
+    DT := EncodeDate(Y, M, D);
+    case M of
+      1: MonthName := 'JAN';  2: MonthName := 'FEB';  3: MonthName := 'MAR';
+      4: MonthName := 'APR';  5: MonthName := 'MAY';  6: MonthName := 'JUN';
+      7: MonthName := 'JUL';  8: MonthName := 'AUG';  9: MonthName := 'SEP';
+     10: MonthName := 'OCT'; 11: MonthName := 'NOV'; 12: MonthName := 'DEC';
+    else MonthName := '???';
     end;
-  finally
-    Resp.Free;
+    ItemObj := _ObjFast([
+      'label',  Format('%.2d%s%.2d', [D, MonthName, Y mod 100]),
+      'expiry', string(S),
+      'unix',   Int64(DateTimeToUnix(DT))
+    ]);
+    Out.AddItem(ItemObj);
   end;
+  Result := AnsiString(Out.ToJson);
 end;
 
 function TBroker.NearestExpiry(const AUnderlying: AnsiString;
   AExchange: TExchange): Int64;
 var
-  Json: AnsiString;
-  Arr: TJSONData;
-  S: AnsiString;
+  Body, Resp, Data: variant;
+  ExpArr: PDocVariantData;
+  S: RawUtf8;
   Y, M, D: Integer;
-  DT: TDateTime;
 begin
   Result := 0;
-  Json := ListExpiriesJson(AUnderlying, AExchange);
-  if (Json = '') or (Json = '[]') then Exit;
-  Arr := nil;
-  try
-    Arr := GetJSON(string(Json));
-    if (Arr is TJSONArray) and (TJSONArray(Arr).Count > 0) then
-    begin
-      S := AnsiString(TJSONArray(Arr).Strings[0]);  // 'YYYY-MM-DD'
-      if (Length(S) = 10)
-         and TryStrToInt(Copy(string(S), 1, 4), Y)
-         and TryStrToInt(Copy(string(S), 6, 2), M)
-         and TryStrToInt(Copy(string(S), 9, 2), D) then
-      begin
-        DT := EncodeDate(Y, M, D);
-        Result := DateTimeToUnix(DT);
-      end;
-    end;
-  finally
-    Arr.Free;
-  end;
+  Body := _ObjFast(['symbol', string(AUnderlying)]);
+  Resp := HttpPostJson('/api/v1/expiry', Body);
+  if not StatusOk(Resp, Data) then Exit;
+  if _Safe(Data)^.Kind <> dvObject then Exit;
+  if not _Safe(Data)^.GetAsArray('expiries', ExpArr) then Exit;
+  if ExpArr^.Count = 0 then Exit;
+  S := VariantToUtf8(ExpArr^.Values[0]);  // first expiry — server returns sorted
+  if (Length(S) = 10)
+     and TryStrToInt(Copy(string(S), 1, 4), Y)
+     and TryStrToInt(Copy(string(S), 6, 2), M)
+     and TryStrToInt(Copy(string(S), 9, 2), D) then
+    Result := DateTimeToUnix(EncodeDate(Y, M, D));
 end;
 
 function TBroker.ListStrikesJson(const AUnderlying: AnsiString;
   AExpiryUnix: Int64; AExchange: TExchange): AnsiString;
 var
-  Body, ChainObj, ItemObj, CE, PE, StrikeRow: TJSONObject;
-  Resp, Data, ChainArr, Item, Side: TJSONData;
+  Body, Resp, Data: variant;
+  Chain: PDocVariantData;
+  Out: TDocVariantData;
+  Item, CE, PE: PDocVariantData;
+  Row: variant;
   ExpStr: AnsiString;
-  OutArr: TJSONArray;
   I: Integer;
 begin
-  // Output shape (preserved from libapollo era):
+  // Output shape (preserved from the pre-Thorium era):
   //   [{"strike":24000,"ce_key":"NIFTY28APR2524000CE","pe_key":"...PE",
-  //     "ce_oi":12345,"pe_oi":54321,"ce_vol":...,"pe_vol":...}, ...]
+  //     "ce_oi":...,"pe_oi":...,"ce_vol":...,"pe_vol":...}, ...]
   Result := '[]';
-  Body := TJSONObject.Create;
-  try
-    Body.Add('underlying', string(AUnderlying));
-    if AExpiryUnix > 0 then
+  if AExpiryUnix > 0 then
+  begin
+    ExpStr := AnsiString(FormatDateTime('yyyy-mm-dd', UnixToDateTime(AExpiryUnix)));
+    Body := _ObjFast(['underlying', string(AUnderlying), 'expiry_date', string(ExpStr)]);
+  end
+  else
+    Body := _ObjFast(['underlying', string(AUnderlying)]);
+
+  Resp := HttpPostJson('/api/v1/optionchain', Body);
+  if not StatusOk(Resp, Data) then Exit;
+  if _Safe(Data)^.Kind <> dvObject then Exit;
+  if not _Safe(Data)^.GetAsArray('chain', Chain) then Exit;
+
+  Out.InitArray([], JSON_FAST);
+  for I := 0 to Chain^.Count - 1 do
+  begin
+    Item := _Safe(Chain^.Values[I]);
+    if Item^.Kind <> dvObject then Continue;
+    if Item^.GetValueIndex('strike') < 0 then Continue;
+
+    Row := _ObjFast(['strike', Item^.D['strike']]);
+    CE := _Safe(Item^.Value['ce']);
+    if CE^.Kind = dvObject then
     begin
-      ExpStr := AnsiString(FormatDateTime('yyyy-mm-dd', UnixToDateTime(AExpiryUnix)));
-      Body.Add('expiry_date', string(ExpStr));
+      _Safe(Row)^.AddValue('ce_key', CE^.U['symbol']);
+      _Safe(Row)^.AddValue('ce_oi',  CE^.I['oi']);
+      _Safe(Row)^.AddValue('ce_vol', CE^.I['volume']);
+    end
+    else
+    begin
+      _Safe(Row)^.AddValue('ce_key', '');
+      _Safe(Row)^.AddValue('ce_oi',  Int64(0));
+      _Safe(Row)^.AddValue('ce_vol', Int64(0));
     end;
-    Resp := HttpPostJson('/api/v1/optionchain', Body);
-  finally
-    Body.Free;
-  end;
-  if Resp = nil then Exit;
-  try
-    if not StatusOk(Resp, Data) then Exit;
-    if not (Data is TJSONObject) then Exit;
-    ChainObj := TJSONObject(Data);
-    ChainArr := ChainObj.Find('chain');
-    if (ChainArr = nil) or not (ChainArr is TJSONArray) then Exit;
-
-    OutArr := TJSONArray.Create;
-    try
-      for I := 0 to TJSONArray(ChainArr).Count - 1 do
-      begin
-        Item := TJSONArray(ChainArr).Items[I];
-        if not (Item is TJSONObject) then Continue;
-        ItemObj := TJSONObject(Item);
-        if ItemObj.Find('strike') = nil then Continue;
-
-        StrikeRow := TJSONObject.Create;
-        StrikeRow.Add('strike', ItemObj.Get('strike', Double(0)));
-
-        Side := ItemObj.Find('ce');
-        if (Side <> nil) and (Side is TJSONObject) then
-        begin
-          CE := TJSONObject(Side);
-          StrikeRow.Add('ce_key', CE.Get('symbol', ''));
-          StrikeRow.Add('ce_oi',  CE.Get('oi',     Int64(0)));
-          StrikeRow.Add('ce_vol', CE.Get('volume', Int64(0)));
-        end
-        else
-        begin
-          StrikeRow.Add('ce_key', '');
-          StrikeRow.Add('ce_oi',  Int64(0));
-          StrikeRow.Add('ce_vol', Int64(0));
-        end;
-
-        Side := ItemObj.Find('pe');
-        if (Side <> nil) and (Side is TJSONObject) then
-        begin
-          PE := TJSONObject(Side);
-          StrikeRow.Add('pe_key', PE.Get('symbol', ''));
-          StrikeRow.Add('pe_oi',  PE.Get('oi',     Int64(0)));
-          StrikeRow.Add('pe_vol', PE.Get('volume', Int64(0)));
-        end
-        else
-        begin
-          StrikeRow.Add('pe_key', '');
-          StrikeRow.Add('pe_oi',  Int64(0));
-          StrikeRow.Add('pe_vol', Int64(0));
-        end;
-
-        OutArr.Add(StrikeRow);
-      end;
-      Result := AnsiString(OutArr.AsJSON);
-    finally
-      OutArr.Free;
+    PE := _Safe(Item^.Value['pe']);
+    if PE^.Kind = dvObject then
+    begin
+      _Safe(Row)^.AddValue('pe_key', PE^.U['symbol']);
+      _Safe(Row)^.AddValue('pe_oi',  PE^.I['oi']);
+      _Safe(Row)^.AddValue('pe_vol', PE^.I['volume']);
+    end
+    else
+    begin
+      _Safe(Row)^.AddValue('pe_key', '');
+      _Safe(Row)^.AddValue('pe_oi',  Int64(0));
+      _Safe(Row)^.AddValue('pe_vol', Int64(0));
     end;
-  finally
-    Resp.Free;
+    Out.AddItem(Row);
   end;
+  Result := AnsiString(Out.ToJson);
 end;
 
 function TBroker.ATMStrike(const AUnderlying: AnsiString; AExpiryUnix: Int64;
   ASpot: Double): Double;
 var
   Json: AnsiString;
-  Arr: TJSONData;
-  Item: TJSONData;
+  Strikes: TDocVariantData;
+  Item: PDocVariantData;
   I: Integer;
-  S, Best, BestDiff, D: Double;
+  S, Best, BestDiff, Diff: Double;
 begin
-  // Try the chain first to land on a real listed strike.
   Json := ListStrikesJson(AUnderlying, AExpiryUnix, exNFO);
-  Arr := nil;
   Best := 0;
   BestDiff := 1e18;
-  try
-    Arr := GetJSON(string(Json));
-    if Arr is TJSONArray then
+  Strikes.InitJson(RawUtf8(Json), JSON_FAST);
+  if Strikes.Kind = dvArray then
+  begin
+    for I := 0 to Strikes.Count - 1 do
     begin
-      for I := 0 to TJSONArray(Arr).Count - 1 do
+      Item := _Safe(Strikes.Values[I]);
+      if Item^.Kind <> dvObject then Continue;
+      S := Item^.D['strike'];
+      if S <= 0 then Continue;
+      Diff := Abs(S - ASpot);
+      if Diff < BestDiff then
       begin
-        Item := TJSONArray(Arr).Items[I];
-        if not (Item is TJSONObject) then Continue;
-        S := TJSONObject(Item).Get('strike', Double(0));
-        if S <= 0 then Continue;
-        D := Abs(S - ASpot);
-        if D < BestDiff then
-        begin
-          BestDiff := D;
-          Best := S;
-        end;
+        BestDiff := Diff;
+        Best := S;
       end;
     end;
-  finally
-    Arr.Free;
   end;
-  if Best > 0 then
-    Exit(Best);
+  if Best > 0 then Exit(Best);
 
-  // Fallback: heuristic step. NIFTY=50, BANKNIFTY/SENSEX=100.
+  // Fallback heuristic if the chain endpoint returned nothing.
   if (UpperCase(AUnderlying) = 'BANKNIFTY')
      or (UpperCase(AUnderlying) = 'SENSEX')
      or (UpperCase(AUnderlying) = 'BANKEX') then
@@ -998,59 +934,40 @@ end;
 function TBroker.ResolveOption(const AUnderlying: AnsiString; AExpiryUnix: Int64;
   AStrike: Double; AOptionType: TOptionType; AExchange: TExchange): Integer;
 var
-  Body: TJSONObject;
-  Resp: TJSONData;
-  Data: TJSONData;
+  Body, Resp, Data: variant;
   ExpStr, Sym: AnsiString;
 begin
   Result := -1;
   if (AOptionType = otNone) or (AExpiryUnix <= 0) then Exit;
   ExpStr := AnsiString(FormatDateTime('yyyy-mm-dd', UnixToDateTime(AExpiryUnix)));
-  Body := TJSONObject.Create;
-  try
-    Body.Add('symbol',      string(AUnderlying));
-    Body.Add('expiry',      string(ExpStr));
-    Body.Add('strike',      AStrike);
-    Body.Add('option_type', string(OptionTypeStr(AOptionType)));
-    Resp := HttpPostJson('/api/v1/optionsymbol', Body);
-  finally
-    Body.Free;
-  end;
-  if Resp = nil then Exit;
-  try
-    if not StatusOk(Resp, Data) then Exit;
-    if not (Data is TJSONObject) then Exit;
-    Sym := AnsiString(TJSONObject(Data).Get('symbol', ''));
-    if Sym = '' then Exit;
-    Result := GetOrCreateSymId(Sym, ResolveExchange(Sym, AExchange));
-  finally
-    Resp.Free;
-  end;
+  Body := _ObjFast([
+    'symbol',      string(AUnderlying),
+    'expiry',      string(ExpStr),
+    'strike',      AStrike,
+    'option_type', string(OptionTypeStr(AOptionType))
+  ]);
+  Resp := HttpPostJson('/api/v1/optionsymbol', Body);
+  if not StatusOk(Resp, Data) then Exit;
+  if _Safe(Data)^.Kind <> dvObject then Exit;
+  Sym := AnsiString(string(_Safe(Data)^.U['symbol']));
+  if Sym = '' then Exit;
+  Result := GetOrCreateSymId(Sym, ResolveExchange(Sym, AExchange));
 end;
 
 function TBroker.SearchJson(const AQuery: AnsiString; AExchange: TExchange;
   AMaxResults: Integer): AnsiString;
 var
-  Body: TJSONObject;
-  Resp: TJSONData;
-  Data: TJSONData;
+  Body, Resp, Data: variant;
 begin
   Result := '[]';
-  Body := TJSONObject.Create;
-  try
-    Body.Add('query', string(AQuery));
-    if AMaxResults > 0 then Body.Add('limit', AMaxResults);
-    Resp := HttpPostJson('/api/v1/search', Body);
-  finally
-    Body.Free;
-  end;
-  if Resp = nil then Exit;
-  try
-    if StatusOk(Resp, Data) and (Data is TJSONArray) then
-      Result := AnsiString(Data.AsJSON);
-  finally
-    Resp.Free;
-  end;
+  if AMaxResults > 0 then
+    Body := _ObjFast(['query', string(AQuery), 'limit', AMaxResults])
+  else
+    Body := _ObjFast(['query', string(AQuery)]);
+  Resp := HttpPostJson('/api/v1/search', Body);
+  if not StatusOk(Resp, Data) then Exit;
+  if _Safe(Data)^.Kind = dvArray then
+    Result := AnsiString(VariantSaveJson(Data));
 end;
 
 // ── Symbol mapping (identity over Thorium's CID model) ───────────────────────
@@ -1075,7 +992,6 @@ var
   I: Integer;
   Sym, Exch: AnsiString;
 begin
-  // Linear scan — only used by examples / debug paths.
   FSymLock.Enter;
   try
     for I := 0 to FIdKeys.Count - 1 do
@@ -1092,176 +1008,96 @@ end;
 
 function TBroker.LTP(const ASymbol: AnsiString; AExchange: TExchange): Double;
 var
-  Body: TJSONObject;
-  Resp: TJSONData;
-  Data: TJSONData;
+  Body, Resp, Data: variant;
 begin
   Result := 0;
-  Body := TJSONObject.Create;
-  try
-    Body.Add('symbol',   string(ASymbol));
-    Body.Add('exchange', string(ResolveExchange(ASymbol, AExchange)));
-    Resp := HttpPostJson('/api/v1/quotes', Body);
-  finally
-    Body.Free;
-  end;
-  if Resp = nil then Exit;
-  try
-    if StatusOk(Resp, Data) and (Data is TJSONObject) then
-      Result := TJSONObject(Data).Get('ltp', Double(0));
-  finally
-    Resp.Free;
-  end;
+  Body := _ObjFast([
+    'symbol',   string(ASymbol),
+    'exchange', string(ResolveExchange(ASymbol, AExchange))
+  ]);
+  Resp := HttpPostJson('/api/v1/quotes', Body);
+  if not StatusOk(Resp, Data) then Exit;
+  if _Safe(Data)^.Kind = dvObject then
+    Result := _Safe(Data)^.D['ltp'];
 end;
 
 function TBroker.HistoryJson(const ASymbol: AnsiString; AExchange: TExchange;
   const AFrom, ATo, AInterval: AnsiString): AnsiString;
 var
-  Body: TJSONObject;
-  Resp: TJSONData;
-  Data: TJSONData;
+  Body, Resp, Data: variant;
 begin
   Result := '[]';
-  Body := TJSONObject.Create;
-  try
-    Body.Add('symbol',     string(ASymbol));
-    Body.Add('exchange',   string(ResolveExchange(ASymbol, AExchange)));
-    Body.Add('interval',   string(AInterval));
-    Body.Add('start_date', string(AFrom));
-    Body.Add('end_date',   string(ATo));
-    Resp := HttpPostJson('/api/v1/history', Body);
-  finally
-    Body.Free;
-  end;
-  if Resp = nil then Exit;
-  try
-    if StatusOk(Resp, Data) and (Data is TJSONArray) then
-      Result := AnsiString(Data.AsJSON);
-  finally
-    Resp.Free;
-  end;
+  Body := _ObjFast([
+    'symbol',     string(ASymbol),
+    'exchange',   string(ResolveExchange(ASymbol, AExchange)),
+    'interval',   string(AInterval),
+    'start_date', string(AFrom),
+    'end_date',   string(ATo)
+  ]);
+  Resp := HttpPostJson('/api/v1/history', Body);
+  if not StatusOk(Resp, Data) then Exit;
+  if _Safe(Data)^.Kind = dvArray then
+    Result := AnsiString(VariantSaveJson(Data));
 end;
 
 // ── Account ──────────────────────────────────────────────────────────────────
 
 function TBroker.FundsJson: AnsiString;
 var
-  Body: TJSONObject;
-  Resp: TJSONData;
-  Data: TJSONData;
+  Resp, Data: variant;
 begin
   Result := '{}';
-  Body := TJSONObject.Create;
-  try
-    Resp := HttpPostJson('/api/v1/funds', Body);
-  finally
-    Body.Free;
-  end;
-  if Resp = nil then Exit;
-  try
-    if StatusOk(Resp, Data) and (Data <> nil) then
-      Result := AnsiString(Data.AsJSON);
-  finally
-    Resp.Free;
-  end;
-end;
-
-function FundsField(Obj: TJSONObject; const AName: AnsiString): Double;
-var
-  V: TJSONData;
-begin
-  Result := 0;
-  if Obj = nil then Exit;
-  V := Obj.Find(string(AName));
-  if V = nil then Exit;
-  // Thorium emits these as 2-decimal INR strings; older brokers return floats.
-  // AsFloat handles both — a JSON string like "245000.00" parses cleanly.
-  try
-    Result := V.AsFloat;
-  except
-    Result := StrToFloatDef(V.AsString, 0);
-  end;
+  Resp := HttpPostJson('/api/v1/funds', _ObjFast([]));
+  if not StatusOk(Resp, Data) then Exit;
+  if not VarIsClear(Data) then
+    Result := AnsiString(VariantSaveJson(Data));
 end;
 
 function TBroker.AvailableMargin: Double;
 var
-  Json: AnsiString;
-  Obj:  TJSONData;
+  Resp, Data: variant;
 begin
   Result := 0;
-  Json := FundsJson;
-  Obj := nil;
-  try
-    Obj := GetJSON(string(Json));
-    if Obj is TJSONObject then
-      Result := FundsField(TJSONObject(Obj), 'availablecash');
-  finally
-    Obj.Free;
-  end;
+  Resp := HttpPostJson('/api/v1/funds', _ObjFast([]));
+  if not StatusOk(Resp, Data) then Exit;
+  if _Safe(Data)^.Kind = dvObject then
+    Result := VarToFloatLoose(_Safe(Data)^.Value['availablecash']);
 end;
 
 function TBroker.UsedMargin: Double;
 var
-  Json: AnsiString;
-  Obj:  TJSONData;
+  Resp, Data: variant;
 begin
   Result := 0;
-  Json := FundsJson;
-  Obj := nil;
-  try
-    Obj := GetJSON(string(Json));
-    if Obj is TJSONObject then
-      Result := FundsField(TJSONObject(Obj), 'utiliseddebits');
-  finally
-    Obj.Free;
-  end;
+  Resp := HttpPostJson('/api/v1/funds', _ObjFast([]));
+  if not StatusOk(Resp, Data) then Exit;
+  if _Safe(Data)^.Kind = dvObject then
+    Result := VarToFloatLoose(_Safe(Data)^.Value['utiliseddebits']);
 end;
 
 function TBroker.PositionsJson: AnsiString;
 var
-  Body: TJSONObject;
-  Resp: TJSONData;
-  Data: TJSONData;
+  Resp, Data: variant;
 begin
   Result := '[]';
-  Body := TJSONObject.Create;
-  try
-    Resp := HttpPostJson('/api/v1/positionbook', Body);
-  finally
-    Body.Free;
-  end;
-  if Resp = nil then Exit;
-  try
-    if StatusOk(Resp, Data) and (Data is TJSONArray) then
-      Result := AnsiString(Data.AsJSON);
-  finally
-    Resp.Free;
-  end;
+  Resp := HttpPostJson('/api/v1/positionbook', _ObjFast([]));
+  if not StatusOk(Resp, Data) then Exit;
+  if _Safe(Data)^.Kind = dvArray then
+    Result := AnsiString(VariantSaveJson(Data));
 end;
 
 function TBroker.ExitPosition(const ASymbol: AnsiString;
   AExchange: TExchange): Boolean;
 var
-  Body: TJSONObject;
-  Resp: TJSONData;
-  Data: TJSONData;
+  Body, Resp, Data: variant;
 begin
-  Result := False;
-  Body := TJSONObject.Create;
-  try
-    Body.Add('symbol',   string(ASymbol));
-    Body.Add('exchange', string(ResolveExchange(ASymbol, AExchange)));
-    Body.Add('product',  'MIS');
-    Resp := HttpPostJson('/api/v1/closeposition', Body);
-  finally
-    Body.Free;
-  end;
-  if Resp = nil then Exit;
-  try
-    Result := StatusOk(Resp, Data);
-  finally
-    Resp.Free;
-  end;
+  Body := _ObjFast([
+    'symbol',   string(ASymbol),
+    'exchange', string(ResolveExchange(ASymbol, AExchange)),
+    'product',  'MIS'
+  ]);
+  Resp := HttpPostJson('/api/v1/closeposition', Body);
+  Result := StatusOk(Resp, Data);
 end;
 
 // ── Orders ───────────────────────────────────────────────────────────────────
@@ -1270,91 +1106,65 @@ function TBroker.PlaceOrder(const ASymbol: AnsiString; AExchange: TExchange;
   ASide: TSide; AKind: TOrderKind; AProduct: TProductType; AValidity: TValidity;
   AQty: Integer; APrice, ATriggerPrice: Double; const ATag: AnsiString): AnsiString;
 var
-  Body: TJSONObject;
-  Resp: TJSONData;
-  OrderId: TJSONData;
+  Body, Resp: variant;
+  D: PDocVariantData;
+  Status: RawUtf8;
 begin
   Result := '';
-  Body := TJSONObject.Create;
-  try
-    Body.Add('symbol',        string(ASymbol));
-    Body.Add('exchange',      string(ResolveExchange(ASymbol, AExchange)));
-    Body.Add('action',        string(SideStr(ASide)));
-    Body.Add('quantity',      AQty);
-    Body.Add('pricetype',     string(PriceTypeStr(AKind)));
-    Body.Add('product',       string(ProductStr(AProduct)));
-    if APrice > 0 then         Body.Add('price', APrice);
-    if ATriggerPrice > 0 then  Body.Add('trigger_price', ATriggerPrice);
-    if ATag <> '' then         Body.Add('strategy', string(ATag));
-    Resp := HttpPostJson('/api/v1/placeorder', Body);
-  finally
-    Body.Free;
-  end;
-  if Resp = nil then
+  Body := _ObjFast([
+    'symbol',    string(ASymbol),
+    'exchange',  string(ResolveExchange(ASymbol, AExchange)),
+    'action',    string(SideStr(ASide)),
+    'quantity',  AQty,
+    'pricetype', string(PriceTypeStr(AKind)),
+    'product',   string(ProductStr(AProduct))
+  ]);
+  D := _Safe(Body);
+  if APrice > 0 then        D^.AddValue('price', APrice);
+  if ATriggerPrice > 0 then D^.AddValue('trigger_price', ATriggerPrice);
+  if ATag <> '' then        D^.AddValue('strategy', string(ATag));
+
+  Resp := HttpPostJson('/api/v1/placeorder', Body);
+  if VarIsClear(Resp) then
     raise EBrokerError.CreateFmt('place_order failed: %s', [FLastError]);
-  try
-    if not (Resp is TJSONObject) then
-      raise EBrokerError.Create('place_order: unexpected response shape');
-    if AnsiString(TJSONObject(Resp).Get('status', '')) <> 'success' then
-    begin
-      FLastError := AnsiString(TJSONObject(Resp).Get('message', 'unknown'));
-      raise EBrokerError.CreateFmt('place_order failed: %s', [FLastError]);
-    end;
-    OrderId := TJSONObject(Resp).Find('orderid');
-    if OrderId <> nil then
-      Result := AnsiString(OrderId.AsString);
-  finally
-    Resp.Free;
+
+  D := _Safe(Resp);
+  if D^.Kind <> dvObject then
+    raise EBrokerError.Create('place_order: unexpected response shape');
+  if not D^.GetAsRawUtf8('status', Status) or (Status <> 'success') then
+  begin
+    if not D^.GetAsRawUtf8('message', Status) then Status := 'unknown';
+    FLastError := AnsiString(Status);
+    raise EBrokerError.CreateFmt('place_order failed: %s', [FLastError]);
   end;
+  Result := AnsiString(string(D^.U['orderid']));
 end;
 
 function TBroker.ModifyOrder(const AOrderId: AnsiString; AKind: TOrderKind;
   AQty: Integer; APrice, ATriggerPrice: Double): Boolean;
 var
-  Body: TJSONObject;
-  Resp: TJSONData;
-  Data: TJSONData;
+  Body, Resp, Data: variant;
+  D: PDocVariantData;
 begin
-  Result := False;
-  Body := TJSONObject.Create;
-  try
-    Body.Add('orderid',   string(AOrderId));
-    Body.Add('quantity',  AQty);
-    Body.Add('pricetype', string(PriceTypeStr(AKind)));
-    if APrice > 0 then        Body.Add('price', APrice);
-    if ATriggerPrice > 0 then Body.Add('trigger_price', ATriggerPrice);
-    Resp := HttpPostJson('/api/v1/modifyorder', Body);
-  finally
-    Body.Free;
-  end;
-  if Resp = nil then Exit;
-  try
-    Result := StatusOk(Resp, Data);
-  finally
-    Resp.Free;
-  end;
+  Body := _ObjFast([
+    'orderid',   string(AOrderId),
+    'quantity',  AQty,
+    'pricetype', string(PriceTypeStr(AKind))
+  ]);
+  D := _Safe(Body);
+  if APrice > 0 then        D^.AddValue('price', APrice);
+  if ATriggerPrice > 0 then D^.AddValue('trigger_price', ATriggerPrice);
+  Resp := HttpPostJson('/api/v1/modifyorder', Body);
+  Result := StatusOk(Resp, Data);
 end;
 
 function TBroker.CancelOrder(const AOrderId: AnsiString): Boolean;
 var
-  Body: TJSONObject;
-  Resp: TJSONData;
-  Data: TJSONData;
+  Body, Resp, Data: variant;
 begin
-  Result := False;
-  Body := TJSONObject.Create;
-  try
-    Body.Add('orderid', string(AOrderId));
-    Resp := HttpPostJson('/api/v1/cancelorder', Body);
-  finally
-    Body.Free;
-  end;
-  if Resp = nil then Exit;
-  try
-    Result := StatusOk(Resp, Data);
-  finally
-    Resp.Free;
-  end;
+  Body := _ObjFast(['orderid', string(AOrderId)]);
+  Resp := HttpPostJson('/api/v1/cancelorder', Body);
+  Result := StatusOk(Resp, Data);
 end;
 
 // ── Streaming ────────────────────────────────────────────────────────────────
@@ -1399,6 +1209,8 @@ function TBroker.WsAuthenticate: Boolean;
 var
   Body: AnsiString;
 begin
+  // Send both `apikey` and `api_key` — Thorium docs use one form, the
+  // OpenAlgo bridge spec uses the other; either field is sufficient.
   Body := AnsiString(Format('{"action":"authenticate","apikey":"%s","api_key":"%s"}',
     [JsonEscape(FApiKey), JsonEscape(FApiKey)]));
   Result := WsSendJson(Body);
@@ -1430,16 +1242,18 @@ begin
   end;
 end;
 
-procedure TBroker.DispatchTickJson(AObj: TJSONObject);
+procedure TBroker.DispatchTick(const ATick: variant; const ARawText: AnsiString);
 var
+  D: PDocVariantData;
   Sym, Exch, Key: AnsiString;
-  SymId: Integer;
-  Idx: Integer;
+  SymId, Idx: Integer;
   LTPv, Bid, Ask: Double;
   Vol, OI: Int64;
 begin
-  Sym  := AnsiString(AObj.Get('symbol', ''));
-  Exch := AnsiString(AObj.Get('exchange', ''));
+  D := _Safe(ATick);
+  if D^.Kind <> dvObject then Exit;
+  Sym  := AnsiString(string(D^.U['symbol']));
+  Exch := AnsiString(string(D^.U['exchange']));
   if (Sym = '') or (Exch = '') then Exit;
   Key := UpperCase(Sym) + '|' + UpperCase(Exch);
 
@@ -1458,11 +1272,11 @@ begin
     FSymLock.Leave;
   end;
 
-  LTPv := AObj.Get('ltp',     Double(0));
-  Bid  := AObj.Get('bid',     Double(0));
-  Ask  := AObj.Get('ask',     Double(0));
-  Vol  := AObj.Get('volume',  Int64(0));
-  OI   := AObj.Get('oi',      Int64(0));
+  LTPv := D^.D['ltp'];
+  Bid  := D^.D['bid'];
+  Ask  := D^.D['ask'];
+  Vol  := D^.I['volume'];
+  OI   := D^.I['oi'];
   Inc(FTickCount);
 
   if Assigned(FOnTick) then
@@ -1472,24 +1286,19 @@ end;
 procedure TBroker.WsIncomingFrame(Sender: TWebSocketProcess;
   const Frame: TWebSocketFrame);
 var
-  S: AnsiString;
-  J: TJSONData;
-  Obj: TJSONObject;
-  T:   AnsiString;
-  Reason: AnsiString;
+  RawText: AnsiString;
+  Frm: variant;
+  D: PDocVariantData;
+  T, Status, Reason: RawUtf8;
 begin
   case Frame.opcode of
     focContinuation:
       begin
-        // Connection upgraded — fire the connect callback.
         if Assigned(FOnConnect) then
           FOnConnect(FUserData, PAnsiChar('thorium-ws'));
       end;
     focConnectionClose:
       begin
-        // Mark the session dead so a subsequent StreamStart re-handshakes
-        // from scratch. Don't touch FWsClient here — the process thread
-        // still owns it; StreamStart/Stop handles teardown.
         FStreamRunning := False;
         if Assigned(FOnDisconnect) then
           FOnDisconnect(FUserData, PAnsiChar('thorium-ws'),
@@ -1497,48 +1306,44 @@ begin
       end;
     focText, focBinary:
       begin
-        S := AnsiString(Frame.payload);
-        if S = '' then Exit;
-        J := nil;
+        RawText := AnsiString(Frame.payload);
+        if RawText = '' then Exit;
         try
-          try
-            J := GetJSON(string(S));
-          except
-            Exit;
-          end;
-          if not (J is TJSONObject) then Exit;
-          Obj := TJSONObject(J);
-          T := AnsiString(Obj.Get('type', ''));
+          Frm := _Json(string(RawText));
+        except
+          Exit;
+        end;
+        D := _Safe(Frm);
+        if D^.Kind <> dvObject then Exit;
 
-          if T = 'tick' then
-            DispatchTickJson(Obj)
-          else if T = 'heartbeat' then
-            Exit
-          else if T = 'auth' then
+        D^.GetAsRawUtf8('type', T);
+        if T = 'tick' then
+          DispatchTick(Frm, RawText)
+        else if T = 'heartbeat' then
+          Exit
+        else if T = 'auth' then
+        begin
+          if not D^.GetAsRawUtf8('status', Status) or (Status <> 'success') then
           begin
-            if AnsiString(Obj.Get('status', '')) <> 'success' then
-            begin
-              Reason := AnsiString(Obj.Get('message', 'auth failed'));
-              if Assigned(FOnDisconnect) then
-                FOnDisconnect(FUserData, PAnsiChar('thorium-ws'),
-                  PAnsiChar(Reason));
-            end;
-          end
-          else if T = 'subscribe' then
-          begin
-            if AnsiString(Obj.Get('status', '')) <> 'success' then
-              FLastError := AnsiString(Obj.Get('message', 'subscribe failed'));
-          end
-          else if Obj.Find('symbol') <> nil then
-            // Untyped tick frame.
-            DispatchTickJson(Obj)
-          else if Obj.Find('orderid') <> nil then
-          begin
-            if Assigned(FOnOrder) then
-              FOnOrder(FUserData, PAnsiChar(S));
+            if not D^.GetAsRawUtf8('message', Reason) then Reason := 'auth failed';
+            if Assigned(FOnDisconnect) then
+              FOnDisconnect(FUserData, PAnsiChar('thorium-ws'),
+                PAnsiChar(string(Reason)));
           end;
-        finally
-          J.Free;
+        end
+        else if T = 'subscribe' then
+        begin
+          if D^.GetAsRawUtf8('status', Status) and (Status <> 'success') then
+            if D^.GetAsRawUtf8('message', Reason) then
+              FLastError := AnsiString(Reason);
+        end
+        else if D^.GetValueIndex('symbol') >= 0 then
+          // Untyped tick frame.
+          DispatchTick(Frm, RawText)
+        else if D^.GetValueIndex('orderid') >= 0 then
+        begin
+          if Assigned(FOnOrder) then
+            FOnOrder(FUserData, PAnsiChar(RawText));
         end;
       end;
   end;
@@ -1618,10 +1423,8 @@ begin
     Mode := 1;
   end;
 
-  // Make sure the SymbolId exists for tick correlation.
   GetOrCreateSymId(ASymbol, Exch);
 
-  // Persist the subscription for replay across reconnects.
   SubKey := ASymbol + '|' + Exch + '|' + AnsiString(IntToStr(Mode));
   FSubLock.Enter;
   try
@@ -1632,7 +1435,7 @@ begin
   end;
 
   if not FStreamRunning then
-    Exit(True);  // queued — will replay on StreamStart.
+    Exit(True);
 
   Body := AnsiString(Format(
     '{"action":"subscribe","symbol":"%s","exchange":"%s","mode":%d}',
@@ -1666,9 +1469,6 @@ function TBroker.SubscribeOrders: Boolean;
 var
   Body: AnsiString;
 begin
-  // Thorium's WS protocol streams tick data; order updates are emitted as
-  // typed frames on the same socket. There's no separate subscribe action.
-  // Send a hint frame for servers that gate on it; ignore the response.
   FOrdersSubscribed := True;
   if not FStreamRunning then
     Exit(True);
